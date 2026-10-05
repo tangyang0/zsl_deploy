@@ -4,11 +4,16 @@
 The live controller is a small state machine: keep the startup pose in
 low-level damping, press ``s`` for the stand-up transition, then press ``t``
 to start ONNX policy control. ``d`` cancels/ends safely by switching the
-current pose to damping. In policy control the arrow keys request ±0.25 m/s
+current pose to damping. In policy control the arrow keys request ±0.2 m/s
 and an inactive/released key means zero velocity.
 
 The policy is evaluated at 50 Hz and the latest position target is sent at
 500 Hz by a separate sender thread.
+
+Experimental variant: raw policy actions are NOT amplitude-clipped.
+Joint targets are clamped to the SDK's hard per-joint windows so
+sendMotorCmd never rejects them. Action scales, finite-output checks, and
+the damping state machine are retained.
 """
 
 from __future__ import annotations
@@ -28,14 +33,14 @@ import onnxruntime as ort
 
 
 DEFAULT_SDK_LIB = "/home/tangyang/workspace/genisom_l1_sdk_old/lib/zsl-1/x86_64"
-DEFAULT_MODEL = ("/home/tangyang/workspace/robot_workflow/runs/config2/2026-09-18_08-50-14_513475_fresh/exported/policy.onnx")
+DEFAULT_MODEL = ("/home/tangyang/workspace/robot_lab/logs/rsl_rl/zsibot_zsl1_flat/ty_2026-09-23_18-56-21_smooth_ft/exported/policy.onnx")
 LOCAL_IP = "192.168.234.16"
 DOG_IP = "192.168.234.1"
 PORT = 43988
 SEND_DT = 0.002
 POLICY_DT = 0.020
 TRANSITION_DT = 2.0
-LOW_SPEED = 0.25
+LOW_SPEED = 0.5
 DAMPING_KD = 3.0
 
 # RobotLab joint order: [FAR, FBL, RAR, RBL] = [FR, FL, RR, RL].
@@ -45,9 +50,14 @@ DEFAULT_Q = np.tile(np.array([0.0, 0.8, -1.5], dtype=np.float32), 4)
 # the legs briefly when the robot is already lying on the ground.
 STANDUP_INTERMEDIATE_Q = np.tile(np.array([0.0, 1.4, -2.4], dtype=np.float32), 4)
 ACTION_SCALE = np.tile(np.array([0.125, 0.25, 0.25], dtype=np.float32), 4)
+# Hard joint windows enforced by the SDK inside sendMotorCmd ("invalid
+# {abad,hip,knee} cmd, expect ... rad"); targets outside are rejected with
+# return -1 and the sender thread aborts. Policy targets are clamped here so
+# unclipped actions can never trip that check.
+Q_LIMIT_LO = np.tile(np.array([-0.48, -1.15, -2.9], dtype=np.float32), 4)
+Q_LIMIT_HI = np.tile(np.array([0.48, 2.97, -0.65], dtype=np.float32), 4)
 
-# Initial values. Validate these on the actual robot before changing the
-# action limit or using a larger command range.
+# Initial gains; this experimental variant does not clip policy actions.
 POLICY_KP = 20.0
 POLICY_KD = 0.7
 TRANSITION_KP = 80.0
@@ -75,7 +85,6 @@ def parse_args() -> argparse.Namespace:
         "--key-timeout", type=float, default=0.15,
         help="方向键最后一次事件后的保持时间（秒，默认 0.15）",
     )
-    parser.add_argument("--action-limit", type=float, default=1.0, help="Absolute policy-action limit")
     parser.add_argument("--kp", type=float, default=POLICY_KP, help="Policy position gain")
     parser.add_argument("--kd", type=float, default=POLICY_KD, help="Policy velocity gain")
     parser.add_argument("--transition-kp", type=float, default=TRANSITION_KP)
@@ -268,7 +277,7 @@ class KeyboardCommand:
         tty.setcbreak(sys.stdin.fileno())
         print("状态：阻尼；按 s 进入 standup 过渡，完成后按 t 进入测试")
         print("d：放弃/停止测试，切换当前姿态阻尼并自然下趴；X/Ctrl+C 也是安全退出")
-        print("测试控制：↑/↓ 前进/后退，←/→ 左移/右移，速度 ±0.25 m/s；松开即归零")
+        print("测试控制：↑/↓ 前进/后退，←/→ 左移/右移，速度 ±0.2 m/s；松开即归零")
         return self
 
     def __exit__(self, *_):
@@ -396,11 +405,10 @@ def safe_damping_shutdown(robot, sdk, seconds):
 
 
 def main(args: argparse.Namespace):
+    print("实验版本：策略动作无限幅；关节目标 = 默认姿态 + ACTION_SCALE × 原始动作，并按 SDK 关节限位裁剪")
     model_path = Path(args.model).expanduser().resolve()
     if not model_path.is_file():
         raise FileNotFoundError(f"找不到 ONNX 模型：{model_path}")
-    if args.action_limit <= 0.0 or not np.isfinite(args.action_limit):
-        raise ValueError("--action-limit 必须是正数")
     if args.key_timeout <= 0.0 or not np.isfinite(args.key_timeout):
         raise ValueError("--key-timeout 必须是正数")
     if args.stop_hold_seconds < 0.0 or not np.isfinite(args.stop_hold_seconds):
@@ -443,6 +451,7 @@ def main(args: argparse.Namespace):
             last_action = np.zeros(12, dtype=np.float32)
             command = np.zeros(3, dtype=np.float32)
             q_des = DEFAULT_Q.copy()
+            clip_steps = 0
             next_infer = time.monotonic()
             last_check = next_infer
             last_print = 0.0
@@ -491,6 +500,7 @@ def main(args: argparse.Namespace):
                     state = STATE_TEST
                     last_action[:] = 0.0
                     command[:] = 0.0
+                    clip_steps = 0
                     next_infer = now
                     print("收到 t：进入策略测试；无方向键时 command=0")
 
@@ -504,8 +514,11 @@ def main(args: argparse.Namespace):
                     raw_action = np.asarray(session.run([output_name], {input_name: obs[None, :]})[0][0], np.float32)
                     if raw_action.shape != (12,) or not np.isfinite(raw_action).all():
                         raise ValueError(f"策略输出异常：shape={raw_action.shape}")
-                    last_action = np.clip(raw_action, -args.action_limit, args.action_limit)
-                    q_des = DEFAULT_Q + ACTION_SCALE * last_action
+                    last_action = raw_action.copy()
+                    q_raw = DEFAULT_Q + ACTION_SCALE * last_action
+                    q_des = np.clip(q_raw, Q_LIMIT_LO, Q_LIMIT_HI)
+                    if not np.array_equal(q_des, q_raw):
+                        clip_steps += 1
                     sender.set_target(q_des)
                     next_infer += POLICY_DT
                     if now - next_infer > POLICY_DT:
@@ -515,6 +528,8 @@ def main(args: argparse.Namespace):
                         print(f"command: {np.round(command, 3)}")
                         print(f"action : {np.round(last_action, 3)}")
                         print(f"q_des  : {np.round(q_des, 3)}")
+                        if clip_steps:
+                            print(f"clip   : {clip_steps} 个控制周期触及 SDK 关节限位")
                         last_print = now
                 time.sleep(0.0005)
     finally:
