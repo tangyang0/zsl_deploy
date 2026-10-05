@@ -4,8 +4,9 @@
 The live controller is a small state machine: keep the startup pose in
 low-level damping, press ``s`` for the stand-up transition, then press ``t``
 to start ONNX policy control. ``d`` cancels/ends safely by switching the
-current pose to damping. In policy control the arrow keys request ±0.2 m/s
-and an inactive/released key means zero velocity.
+current pose to damping. In policy control the arrow keys request linear
+velocity and Z/C request left/right yaw rate; an inactive/released key
+means zero command.
 
 The policy is evaluated at 50 Hz and the latest position target is sent at
 500 Hz by a separate sender thread.
@@ -33,14 +34,17 @@ import onnxruntime as ort
 
 
 DEFAULT_SDK_LIB = "/home/tangyang/workspace/genisom_l1_sdk_old/lib/zsl-1/x86_64"
-DEFAULT_MODEL = ("/home/tangyang/workspace/robot_lab/logs/rsl_rl/zsibot_zsl1_flat/ty_2026-09-23_18-56-21_smooth_ft/exported/policy.onnx")
+DEFAULT_MODEL = ("/home/tangyang/workspace/robot_workflow/runs/config2/2026-09-18_08-50-14_513475_fresh/exported/policy.onnx")
 LOCAL_IP = "192.168.234.16"
 DOG_IP = "192.168.234.1"
 PORT = 43988
 SEND_DT = 0.002
 POLICY_DT = 0.020
 TRANSITION_DT = 2.0
-LOW_SPEED = 0.5
+LOW_SPEED = 0.8
+# Yaw-rate step for turning; matches play.py's Se2Keyboard omega_z
+# sensitivity, which is the task's max command ang_vel_z (1.0 rad/s).
+TURN_SPEED = 1.0
 DAMPING_KD = 3.0
 
 # RobotLab joint order: [FAR, FBL, RAR, RBL] = [FR, FL, RR, RL].
@@ -260,9 +264,17 @@ class KeyboardCommand:
         # The SDK examples use +vy for left and -vy for right.
         "LEFT": np.array([0.0, LOW_SPEED, 0.0], np.float32),
         "RIGHT": np.array([0.0, -LOW_SPEED, 0.0], np.float32),
+        # Yaw follows play.py's Se2Keyboard binding (Z/NUMPAD_7 = +omega_z
+        # left turn, X/NUMPAD_9 = -omega_z right turn); X is already the
+        # emergency exit here, so right turn moves to C.
+        "TURN_L": np.array([0.0, 0.0, TURN_SPEED], np.float32),
+        "TURN_R": np.array([0.0, 0.0, -TURN_SPEED], np.float32),
     }
     _escape_keys = {b"\x1b[A": "UP", b"\x1b[B": "DOWN", b"\x1b[C": "RIGHT", b"\x1b[D": "LEFT"}
-    _byte_keys = {b"8": "UP", b"2": "DOWN", b"4": "LEFT", b"6": "RIGHT"}
+    _byte_keys = {
+        b"8": "UP", b"2": "DOWN", b"4": "LEFT", b"6": "RIGHT",
+        b"z": "TURN_L", b"7": "TURN_L", b"c": "TURN_R", b"9": "TURN_R",
+    }
     _event_keys = {b"s": "STANDUP", b"t": "TEST", b"d": "DAMPING", b"x": "EXIT"}
 
     def __init__(self, hold_timeout=0.15):
@@ -281,7 +293,10 @@ class KeyboardCommand:
         tty.setcbreak(sys.stdin.fileno())
         print("状态：阻尼；按 s 进入 standup 过渡，完成后按 t 进入测试")
         print("d：放弃/停止测试，切换当前姿态阻尼并自然下趴；X/Ctrl+C 也是安全退出")
-        print("测试控制：↑/↓ 前进/后退，←/→ 左移/右移，速度 ±0.2 m/s；松开即归零")
+        print(
+            f"测试控制：↑/↓ 前进/后退，←/→ 左移/右移（±{LOW_SPEED} m/s）；"
+            f"z/7 左转，c/9 右转（±{TURN_SPEED} rad/s）；松开即归零"
+        )
         return self
 
     def __exit__(self, *_):
