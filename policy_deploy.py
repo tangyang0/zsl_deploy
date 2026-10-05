@@ -249,7 +249,7 @@ class KeyboardCommand:
         "RIGHT": np.array([0.0, -LOW_SPEED, 0.0], np.float32),
     }
     _escape_keys = {b"\x1b[A": "UP", b"\x1b[B": "DOWN", b"\x1b[C": "RIGHT", b"\x1b[D": "LEFT"}
-    _byte_keys = {b"8": "UP", b"2": "DOWN", b"4": "RIGHT", b"6": "LEFT"}
+    _byte_keys = {b"8": "UP", b"2": "DOWN", b"4": "LEFT", b"6": "RIGHT"}
     _event_keys = {b"s": "STANDUP", b"t": "TEST", b"d": "DAMPING", b"x": "EXIT"}
 
     def __init__(self, hold_timeout=0.15):
