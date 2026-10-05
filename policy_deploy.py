@@ -53,9 +53,13 @@ ACTION_SCALE = np.tile(np.array([0.125, 0.25, 0.25], dtype=np.float32), 4)
 # Hard joint windows enforced by the SDK inside sendMotorCmd ("invalid
 # {abad,hip,knee} cmd, expect ... rad"); targets outside are rejected with
 # return -1 and the sender thread aborts. Policy targets are clamped here so
-# unclipped actions can never trip that check.
-Q_LIMIT_LO = np.tile(np.array([-0.48, -1.15, -2.9], dtype=np.float32), 4)
-Q_LIMIT_HI = np.tile(np.array([0.48, 2.97, -0.65], dtype=np.float32), 4)
+# unclipped actions can never trip that check. The bounds keep a small inward
+# margin: float32 cannot represent -2.9/-0.65/2.97 exactly and rounds them to
+# the outside of the window, so a target pinned exactly at an edge would still
+# fail the SDK's double-precision check.
+Q_LIMIT_MARGIN = 1e-3
+Q_LIMIT_LO = np.tile(np.array([-0.48, -1.15, -2.9], dtype=np.float32), 4) + Q_LIMIT_MARGIN
+Q_LIMIT_HI = np.tile(np.array([0.48, 2.97, -0.65], dtype=np.float32), 4) - Q_LIMIT_MARGIN
 
 # Initial gains; this experimental variant does not clip policy actions.
 POLICY_KP = 20.0
