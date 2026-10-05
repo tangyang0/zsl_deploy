@@ -34,7 +34,8 @@ import onnxruntime as ort
 
 
 DEFAULT_SDK_LIB = "/home/tangyang/workspace/genisom_l1_sdk_old/lib/zsl-1/x86_64"
-DEFAULT_MODEL = ("/home/tangyang/workspace/robot_workflow/runs/config2/2026-09-18_08-50-14_513475_fresh/exported/policy.onnx")
+# DEFAULT_MODEL = ("/home/tangyang/workspace/robot_workflow/runs/config2/2026-09-18_08-50-14_513475_fresh/exported/policy.onnx")
+DEFAULT_MODEL = ("/home/tangyang/workspace/robot_lab/logs/rsl_rl/zsibot_zsl1_flat/ty_2026-09-23_18-56-21_smooth_ft/exported/policy.onnx")
 LOCAL_IP = "192.168.234.16"
 DOG_IP = "192.168.234.1"
 PORT = 43988
