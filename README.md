@@ -26,24 +26,21 @@ python policy_sim2sim.py                                    # interactive: 3D vi
 
 Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's exact keyboard semantics: the command is the sum over keys held in the panel — hold to move, release to stop, combinations work, and the command starts at zero (the robot stands until you press). Binding matches Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset the robot. The camera lookat follows the robot each frame (mouse orbit/zoom still work). Falls (base below `0.2 m`) auto-reset. The pygame panel exists because the viewer's key callback has no release events; it is a plain software window, avoiding the offscreen EGL/GLX contexts that failed on some sessions of this machine.
 
-`--native-viewer` runs the viewer alone (its key callback fires once per press with no release/repeat events — verified by synthetic key injection — so keys there stay active until cleared). Use sim2sim to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
+```bash
+python policy_sim2sim.py --native-viewer
+```
+
+Runs the viewer alone: its key callback fires once per press with no release/repeat events (verified by synthetic key injection), so keys there stay active until cleared. Use sim2sim to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
 
 ## Sim2real: robot deployment
 
-### Quick start
+### Preparation
 
-```bash
-cd /home/tangyang/workspace/zsl_deploy
-python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
-```
-
-The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, and `--web-control`.
-
-### SDK source and real-robot prerequisites
+#### SDK source and prerequisites
 
 The bundled `sdk/` binaries come from the vendor's official SDK repository [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git) (online docs: [zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)), distributed under the **BSD 3-Clause License** (Copyright (c) 2025, ZsiBot). Only the two `.so` files per architecture were copied into this repo; the full license text is preserved at `sdk/LICENSE` as its binary-redistribution clause requires.
 
-Before real-robot deployment, the SDK repo's own requirements must be satisfied first:
+The SDK repo's own requirements must be satisfied before deployment:
 
 - **Version match**: the SDK protocol differs across firmware versions. Check the dog's version with `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` and use the matching SDK release — this repo bundles the one verified on our unit; for anything else go to the upstream repo.
 - The vendor recommends running the SDK program on a compute board **wired to the robot** (ethernet) rather than WiFi.
@@ -51,7 +48,7 @@ Before real-robot deployment, the SDK repo's own requirements must be satisfied 
 - Only one SDK client may connect at a time — the vendor remote/app is locked out while this script runs, and vice versa.
 - Keep system resources free: the SDK docs warn that motion control can fail under resource starvation.
 
-### Where to run and what to change
+#### Where to run and what to change
 
 The two modes differ in only two things: which machine runs the script, and where the dog pushes its state (`target_ip` in the dog-side `/opt/export/config/sdk_config.yaml` — every change requires a robot reboot to take effect). The `LOCAL_IP`/`DOG_IP` constants in `policy_deploy.py` carry the host-mode defaults; each also has a CLI flag.
 
@@ -59,7 +56,11 @@ The two modes differ in only two things: which machine runs the script, and wher
 
 1. Connect the machine to the dog's WiFi AP; it should get `192.168.234.16` (the shipped default). If DHCP gave a different address, edit `LOCAL_IP` or pass `--local-ip <actual address>`.
 2. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.16"` (the dog pushes state to this address), then reboot the dog.
-3. Run `python policy_deploy.py --web-control` — nothing else to change.
+3. Run — nothing else to change:
+
+   ```bash
+   python policy_deploy.py --web-control
+   ```
 
 **Deploy on the dog (onboard mode)**
 
@@ -73,7 +74,17 @@ python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
 
 `--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching `target_ip` between modes always requires a reboot, and the other side has no SDK connection while it points elsewhere; only one SDK client may be active at a time.
 
-### Keyboard state machine
+### Operation
+
+#### Launch and options
+
+```bash
+python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
+```
+
+The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-lin-speed`, `--max-yaw-speed`, and `--web-control`.
+
+#### Keyboard control
 
 ```bash
 python policy_deploy.py
@@ -83,22 +94,28 @@ The program keeps the startup pose on the ground and starts **low-level damping*
 
 While testing:
 
-- Arrow keys (or numpad `8/2/4/6`): forward/backward and left/right at `±LOW_SPEED` (currently `0.8 m/s`, within the training command range).
-- `z` (or numpad `7`): turn left at `+1.0 rad/s`; `c` (or numpad `9`): turn right. Play.py's X binding is not used here because `X` is the safe exit.
+- Arrow keys (or numpad `8/2/4/6`): forward/backward and left/right at `±MAX_LIN_SPEED` (default `1.0 m/s`, the training command limit; tighten with `--max-lin-speed`).
+- `z` (or numpad `7`): turn left at `+MAX_YAW_SPEED` (default `1.0 rad/s`; tighten with `--max-yaw-speed`); `c` (or numpad `9`): turn right. Play.py's X binding is not used here because `X` is the safe exit.
 - Active directions sum, but a POSIX terminal only auto-repeats the most recently pressed key: holding two direction keys keeps only the last one once `--key-timeout` (default `0.15 s`) expires. Combine directions by tapping alternately, or press one at a time.
 - `Space` clears the command immediately; releasing a key zeroes it after the same timeout.
 - The hidden `--keyboard` and `--command` options remain accepted for old launch files but are ignored.
 
-### Web control (Retroid / phone)
+#### Web control (Retroid / phone)
 
-`--web-control [PORT]` starts a built-in HTTP server (default 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `LOW_SPEED`/`TURN_SPEED` with a dead zone; if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
+```bash
+python policy_deploy.py --web-control        # or: --web-control 9090 for another port
+```
 
-### Policy action handling
+This starts a built-in HTTP server (default port 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `MAX_LIN_SPEED`/`MAX_YAW_SPEED` with a dead zone (`--max-lin-speed`/`--max-yaw-speed` apply to the keyboard and the web sticks alike); if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
+
+### Mechanism and safety
+
+#### Action handling and joint limits
 
 Experimental variant: raw policy actions are **not** amplitude-clamped. Joint targets are `default pose + ACTION_SCALE * raw action`, then clamped to the hard windows enforced by the SDK's `sendMotorCmd` (abad `±0.48`, hip `-1.15~2.97`, knee `-2.9~-0.65` rad) with a small inward margin (`1e-3 rad`): float32 cannot represent the knee/hip bounds exactly and rounds to the outside, so a target pinned at an edge would still be rejected. The 1 Hz status print shows `clip : N` whenever the clamp engaged during the last second, which quantifies how far the policy wants to exceed the hardware windows.
 
 The initial policy gains `kp=20`, `kd=0.7` match the training actuator stiffness/damping; change them only after hardware validation.
 
-### Shutdown and damping
+#### Shutdown and damping
 
 Every exit path (`d`, `X`, `Ctrl-C`, or a sender error) switches to the legacy LowLevel damping command (`kp=0`, `kd=3`) at the measured current pose and holds it for `--stop-hold-seconds` so the robot can naturally lower itself. The stand-up intermediate pose is never commanded during shutdown. The SDK documents that HighLevel and LowLevel cannot be used concurrently, so this deployment keeps one LowLevel connection rather than trying to call `HighLevel.passive()` in parallel. This software does not replace the robot's physical emergency stop.

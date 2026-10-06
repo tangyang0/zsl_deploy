@@ -37,10 +37,10 @@ from policy_deploy import (
     ACTION_SCALE,
     DEFAULT_MODEL,
     DEFAULT_Q,
-    LOW_SPEED,
+    MAX_LIN_SPEED,
     Q_LIMIT_HI,
     Q_LIMIT_LO,
-    TURN_SPEED,
+    MAX_YAW_SPEED,
     validate_session,
 )
 
@@ -71,15 +71,15 @@ _KEY_NUMPAD = {320 + i: str(i) for i in range(10)}
 # Same binding as play.py's Se2Keyboard (Z/NUMPAD_7 = +omega_z, X/NUMPAD_9
 # = -omega_z, L resets); "c" stays as an extra alias for right yaw.
 _KEY_STEPS = {
-    "8": np.array([LOW_SPEED, 0.0, 0.0], np.float32),
-    "2": np.array([-LOW_SPEED, 0.0, 0.0], np.float32),
-    "4": np.array([0.0, LOW_SPEED, 0.0], np.float32),
-    "6": np.array([0.0, -LOW_SPEED, 0.0], np.float32),
-    "z": np.array([0.0, 0.0, TURN_SPEED], np.float32),
-    "7": np.array([0.0, 0.0, TURN_SPEED], np.float32),
-    "x": np.array([0.0, 0.0, -TURN_SPEED], np.float32),
-    "c": np.array([0.0, 0.0, -TURN_SPEED], np.float32),
-    "9": np.array([0.0, 0.0, -TURN_SPEED], np.float32),
+    "8": np.array([MAX_LIN_SPEED, 0.0, 0.0], np.float32),
+    "2": np.array([-MAX_LIN_SPEED, 0.0, 0.0], np.float32),
+    "4": np.array([0.0, MAX_LIN_SPEED, 0.0], np.float32),
+    "6": np.array([0.0, -MAX_LIN_SPEED, 0.0], np.float32),
+    "z": np.array([0.0, 0.0, MAX_YAW_SPEED], np.float32),
+    "7": np.array([0.0, 0.0, MAX_YAW_SPEED], np.float32),
+    "x": np.array([0.0, 0.0, -MAX_YAW_SPEED], np.float32),
+    "c": np.array([0.0, 0.0, -MAX_YAW_SPEED], np.float32),
+    "9": np.array([0.0, 0.0, -MAX_YAW_SPEED], np.float32),
 }
 _KEY_STEPS.update({name: vec for name, vec in (
     ("UP", _KEY_STEPS["8"]), ("DOWN", _KEY_STEPS["2"]),
@@ -249,9 +249,9 @@ PANEL_W, PANEL_H = 620, 130
 def _pygame_keymap():
     """pygame key -> command step, same binding as play.py's Se2Keyboard."""
     import pygame
-    fwd = np.array([LOW_SPEED, 0.0, 0.0], np.float32)
-    left = np.array([0.0, LOW_SPEED, 0.0], np.float32)
-    turn_l = np.array([0.0, 0.0, TURN_SPEED], np.float32)
+    fwd = np.array([MAX_LIN_SPEED, 0.0, 0.0], np.float32)
+    left = np.array([0.0, MAX_LIN_SPEED, 0.0], np.float32)
+    turn_l = np.array([0.0, 0.0, MAX_YAW_SPEED], np.float32)
     return {
         pygame.K_UP: fwd, pygame.K_KP8: fwd, pygame.K_8: fwd,
         pygame.K_DOWN: -fwd, pygame.K_KP2: -fwd, pygame.K_2: -fwd,
