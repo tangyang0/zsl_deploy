@@ -1,9 +1,20 @@
 # ZSL-1 policy deployment
 
-Single-script deployment of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK. Run with the Python 3.10 environment that matches the SDK extension:
+Single-script deployment of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK.
+
+## Environment setup
+
+The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies. The SDK itself needs no installation: `policy_deploy.py` loads the binding at runtime from `--sdk-lib` (default: the x86_64 build inside `genisom_l1_sdk_old`).
 
 ```bash
+conda create -n zsl_sdk_py310 python=3.10 -y
 conda activate zsl_sdk_py310
+pip install numpy onnxruntime
+```
+
+## Quick start
+
+```bash
 cd /home/tangyang/workspace/zsl_deploy
 python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
 ```
