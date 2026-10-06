@@ -18,13 +18,6 @@ First validate the model without loading the SDK or connecting to the robot:
 python policy_deploy.py --dry-run
 ```
 
-Then check that the network and SDK are returning state. This is receive-only
-and does not send motor commands:
-
-```bash
-python sdk_state_test.py
-```
-
 The deployment program uses the following explicit keyboard state machine:
 
 ```bash
@@ -71,5 +64,4 @@ The damping state is implemented with the legacy LowLevel damping command
 HighLevel and LowLevel cannot be used concurrently, so this deployment keeps
 one LowLevel connection rather than trying to call `HighLevel.passive()` in
 parallel. This software does not replace the robot's physical emergency
-stop. Do not run the state test and deployment programs at the same
-time because they each create an SDK connection.
+stop.
