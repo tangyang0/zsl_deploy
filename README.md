@@ -4,7 +4,7 @@ Single-script deployment of exported RobotLab velocity policies (flat or rough t
 
 ## Environment setup
 
-The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies. The SDK itself needs no installation: `policy_deploy.py` loads the binding at runtime from `--sdk-lib` (default: the x86_64 build inside `genisom_l1_sdk_old`).
+The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. The SDK itself needs no installation: `policy_deploy.py` loads the binding at runtime from `--sdk-lib` (default: the x86_64 build inside `genisom_l1_sdk_old`).
 
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
@@ -18,6 +18,21 @@ pip install numpy onnxruntime
 cd /home/tangyang/workspace/zsl_deploy
 python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
 ```
+
+## Sim2sim playback in MuJoCo
+
+`policy_sim2sim.py` replays the same ONNX policy in MuJoCo before touching the robot. It patches the training URDF on the fly (floating base, absolute mesh paths, and an injected floor because the URDF world has no ground), then runs the identical pipeline as deployment: the observation/action constants are imported from `policy_deploy.py`, physics runs at the training rate of 200 Hz with the policy at 50 Hz, PD gains `kp=20`/`kd=0.7` and the 28 Nm effort limit match training, and joint targets use the same SDK-window clamp with clip counting. The base-frame angular velocity comes from free-joint `qvel[3:6]` (verified against quaternion finite differences).
+
+The floor is a light plane with dark grid strips every meter (visual-only geoms, no physics) so walking is visible. It deliberately avoids textures: on this machine procedural textures rendered offscreen but were silently dropped by the GLFW viewer's context (verified by capturing the actual window), while plain geometry always renders.
+
+```bash
+python policy_sim2sim.py --headless 500 --command 0.5 0 0   # no-viewer smoke test
+python policy_sim2sim.py                                    # interactive: 3D viewer + control panel
+```
+
+Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's exact keyboard semantics: the command is the sum over keys held in the panel — hold to move, release to stop, combinations work, and the command starts at zero (the robot stands until you press). Binding matches Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset the robot. The camera lookat follows the robot each frame (mouse orbit/zoom still work). Falls (base below `0.2 m`) auto-reset. The pygame panel exists because the viewer's key callback has no release events; it is a plain software window, avoiding the offscreen EGL/GLX contexts that failed on some sessions of this machine. Requires `pip install pygame-ce`.
+
+`--native-viewer` runs the viewer alone (its key callback fires once per press with no release/repeat events — verified by synthetic key injection — so keys there stay active until cleared). Use it to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
 
 The default model is the `smooth_ft` policy. Pass `--model` to load another exported policy (e.g. `config2` or the rough-terrain run); the interface is checked at startup, so a policy with a different layout fails loudly.
 
