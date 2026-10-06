@@ -1,6 +1,6 @@
 # ZSL-1 策略部署
 
-单脚本部署：把 RobotLab 导出的速度策略 ONNX（平地或粗糙地形，任意 `[1,45] -> [1,12]` 接口）通过 ZSL-1 旧版 LowLevel Python SDK 跑在真机上。
+部署与 sim2sim 回放：把 RobotLab 导出的速度策略 ONNX（平地或粗糙地形，任意 `[1,45] -> [1,12]` 接口）通过 ZSL-1 旧版 LowLevel Python SDK 跑在真机上——`policy_deploy.py` 负责真机部署，`policy_sim2sim.py` 负责先在 MuJoCo 里回放验证。
 
 ## 环境搭建
 
@@ -9,7 +9,8 @@ SDK 的 Python 绑定按 CPython 3.10 编译（`mc_sdk_zsl_1_py.cpython-310-*`�
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
 conda activate zsl_sdk_py310
-pip install numpy onnxruntime
+pip install numpy onnxruntime      # 部署
+pip install mujoco pygame-ce       # 可选：sim2sim 回放
 ```
 
 ## 快速开始
@@ -34,7 +35,7 @@ python policy_sim2sim.py                                    # 交互：3D viewer
 
 交互模式（默认）打开 mujoco 原生 3D viewer 和一个 pygame 控制小面板，键盘语义与 play.py 完全一致：指令 = 面板中当前按住的所有键之和——按住即走、松开即停、可任意组合，初始指令为零（不按键机器人就站着）。键位与 Se2Keyboard 相同：方向键或小键盘/主键区 `8/2/4/6` 平移，`z`/`7` 左转，`x`/`9` 右转，`l`/`空格` 清零，`r` 复位。相机注视点每帧跟随机器狗（鼠标旋转/缩放仍可用）。摔倒（基座低于 `0.2 m`）自动复位。之所以加 pygame 面板，是因为 viewer 的按键回调没有松开事件；面板是纯软件窗口，避开了本机某些会话上失败的离屏 EGL/GLX 上下文。需要 `pip install pygame-ce`。
 
-`--native-viewer` 只开原生 viewer（其按键回调每次按下只触发一次、无重复/松开事件——已用合成按键注入验证——因此该模式下按键持续生效直到清零）。
+`--native-viewer` 只开原生 viewer（其按键回调每次按下只触发一次、无重复/松开事件——已用合成按键注入验证——因此该模式下按键持续生效直到清零）。上真机前先用它筛策略：例如 `smooth_ft` 在此以 `0.45 m/s` 跟踪 `0.5 m/s` 指令，而 `config2` 在 MuJoCo 里只吃低速（`0.25` 可跟踪、`0.5` 摔倒），尽管它在 Isaac 里能走。
 
 ## 运行位置与网络设置
 
@@ -69,7 +70,7 @@ python policy_deploy.py
 
 `--web-control [端口]` 开启内置 HTTP 服务（默认 8080），浏览器打开即得单页触摸手柄：左侧虚拟摇杆控制 vx/vy，右摇杆 X 轴控制转向；在 Retroid Pocket 4 这类安卓掌机上，浏览器 Gamepad API 会直接读取**实体摇杆**。页面上 `站起 (s)`、`测试 (t)`、`急停 (d)` 按钮驱动同一套状态机。指令为归一化摇杆值乘 `LOW_SPEED`/`TURN_SPEED`（带死区）；页面停止发送超过 0.3 秒即回落到键盘指令源。网页**故意**不提供退出功能：关闭浏览器或断 WiFi 只会令指令归零，绝不会杀掉部署进程。原厂 App 无法复用：它独占 SDK 通道，你的策略运行时 App 根本没有链路。
 
-可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout` 覆盖默认值。
+可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--web-control` 覆盖默认值。
 
 ## 策略动作处理
 

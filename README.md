@@ -1,6 +1,6 @@
 # ZSL-1 policy deployment
 
-Single-script deployment of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK.
+Deployment and sim2sim playback of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK: `policy_deploy.py` runs the policy on the robot, `policy_sim2sim.py` replays it in MuJoCo first.
 
 ## Environment setup
 
@@ -9,7 +9,8 @@ The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
 conda activate zsl_sdk_py310
-pip install numpy onnxruntime
+pip install numpy onnxruntime      # deployment
+pip install mujoco pygame-ce       # optional: sim2sim playback
 ```
 
 ## Quick start
@@ -18,6 +19,8 @@ pip install numpy onnxruntime
 cd /home/tangyang/workspace/zsl_deploy
 python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
 ```
+
+The default model is the `smooth_ft` policy. Pass `--model` to load another exported policy (e.g. `config2` or the rough-terrain run); the interface is checked at startup, so a policy with a different layout fails loudly.
 
 ## Sim2sim playback in MuJoCo
 
@@ -33,8 +36,6 @@ python policy_sim2sim.py                                    # interactive: 3D vi
 Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's exact keyboard semantics: the command is the sum over keys held in the panel — hold to move, release to stop, combinations work, and the command starts at zero (the robot stands until you press). Binding matches Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset the robot. The camera lookat follows the robot each frame (mouse orbit/zoom still work). Falls (base below `0.2 m`) auto-reset. The pygame panel exists because the viewer's key callback has no release events; it is a plain software window, avoiding the offscreen EGL/GLX contexts that failed on some sessions of this machine. Requires `pip install pygame-ce`.
 
 `--native-viewer` runs the viewer alone (its key callback fires once per press with no release/repeat events — verified by synthetic key injection — so keys there stay active until cleared). Use it to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
-
-The default model is the `smooth_ft` policy. Pass `--model` to load another exported policy (e.g. `config2` or the rough-terrain run); the interface is checked at startup, so a policy with a different layout fails loudly.
 
 ## Where to run and network settings
 
@@ -69,7 +70,7 @@ While testing:
 
 `--web-control [PORT]` starts a built-in HTTP server (default 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `LOW_SPEED`/`TURN_SPEED` with a dead zone; if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
 
-Use `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, and `--key-timeout` to override defaults.
+Use `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, and `--web-control` to override defaults.
 
 ## Policy action handling
 
