@@ -30,7 +30,7 @@ Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame cont
 python policy_sim2sim.py --native-viewer
 ```
 
-Runs the viewer alone: its key callback fires once per press with no release/repeat events (verified by synthetic key injection), so keys there stay active until cleared. Use sim2sim to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
+Runs the viewer alone: its key callback has no release/repeat events (verified by synthetic key injection and on the real keyboard), so a pressed direction stays active until cleared, and the latest key replaces the previous command — press once to keep moving, press another key to switch direction, `l`/`Space` to stop. The camera follows the robot in this mode too. Use sim2sim to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
 
 ## Sim2real: robot deployment
 

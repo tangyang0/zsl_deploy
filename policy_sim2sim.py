@@ -341,40 +341,41 @@ def run_interactive(model, data, session, qadr, vadr, base_body, command):
 
 def run_native_viewer(model, data, session, qadr, vadr, base_body, command):
     """MuJoCo's own viewer. Its key callback fires once per press with no
-    repeat/release events (verified with synthetic key injection), so pressed
-    directions stay active until cleared — not play.py semantics. Prefer the
-    default pygame window."""
-    state = {"command": command.copy(), "active": set()}
-
-    def refresh_command():
-        state["command"][:] = 0.0
-        for key in state["active"]:
-            state["command"] += _KEY_STEPS[key]
-        print(f"command: {np.round(state['command'], 3)}")
+    repeat/release events (verified with synthetic key injection and on the
+    real keyboard), so a pressed direction stays active until cleared —
+    press once to keep moving, `l`/`Space` to stop. Prefer the default pygame
+    window for hold-to-move semantics."""
+    state = {"key": None}
 
     def key_callback(keycode):
         key = _decode_key(keycode)
         if key in (" ", "l"):
-            state["active"].clear()
-            refresh_command()
+            state["key"] = None
         elif key == "r":
             state["reset"] = True
         elif key in _KEY_STEPS:
-            state["active"].add(key)
-            refresh_command()
+            state["key"] = key  # last key wins: replaces the previous command
 
-    print("注意: mujoco 原生 viewer 无松键事件，按键持续生效直到 l/空格 清零（建议用默认 pygame 窗口）")
+    print("注意: 原生 viewer 无松键/重复事件，按一次持续生效且新键覆盖旧指令，l/空格 停止"
+          "（建议用默认 pygame 窗口获得按住即走、松开即停）")
     with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
         last_action = np.zeros(12, dtype=np.float32)
         clip_steps, next_loop = 0, time.monotonic()
+        last_printed = None
         while viewer.is_running():
             if state.pop("reset", False):
                 reset_robot(model, data, qadr)
                 last_action[:] = 0.0
                 print("已复位")
+            now = time.monotonic()
+            command[:] = _KEY_STEPS[state["key"]] if state["key"] else 0.0
+            rounded = tuple(np.round(command, 3))
+            if rounded != last_printed:
+                print(f"command: {rounded}")
+                last_printed = rounded
             last_action, clipped = step_policy(
                 model, data, session, session.get_outputs()[0].name,
-                qadr, vadr, base_body, state["command"], last_action,
+                qadr, vadr, base_body, command, last_action,
             )
             clip_steps += clipped
             if data.qpos[2] < FALL_HEIGHT:
@@ -382,6 +383,8 @@ def run_native_viewer(model, data, session, qadr, vadr, base_body, command):
                 time.sleep(1.0)
                 reset_robot(model, data, qadr)
                 last_action[:] = 0.0
+            with viewer.lock():
+                viewer.cam.lookat[:] = [data.qpos[0], data.qpos[1], 0.3]
             viewer.sync()
             next_loop += SIM_DT * DECIMATION
             sleep = next_loop - time.monotonic()

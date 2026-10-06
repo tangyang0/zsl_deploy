@@ -30,7 +30,7 @@ python policy_sim2sim.py                                    # 交互：3D viewer
 python policy_sim2sim.py --native-viewer
 ```
 
-只开原生 viewer：其按键回调每次按下只触发一次、无重复/松开事件（已用合成按键注入验证），因此该模式下按键持续生效直到清零。上真机前先用 sim2sim 筛策略：例如 `smooth_ft` 在此以 `0.45 m/s` 跟踪 `0.5 m/s` 指令，而 `config2` 在 MuJoCo 里只吃低速（`0.25` 可跟踪、`0.5` 摔倒），尽管它在 Isaac 里能走。
+只开原生 viewer：其按键回调没有松开/重复事件（合成按键与真实键盘均已验证），因此按一次持续生效、新按键覆盖旧指令、`l`/`空格` 停止。此模式相机同样跟随机器狗。上真机前先用 sim2sim 筛策略：例如 `smooth_ft` 在此以 `0.45 m/s` 跟踪 `0.5 m/s` 指令，而 `config2` 在 MuJoCo 里只吃低速（`0.25` 可跟踪、`0.5` 摔倒），尽管它在 Isaac 里能走。
 
 ## sim2real：真机部署
 
