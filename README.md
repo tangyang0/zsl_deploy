@@ -1,10 +1,10 @@
 # ZSL-1 policy deployment
 
-Deployment and sim2sim playback of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK: `policy_deploy.py` runs the policy on the robot, `policy_sim2sim.py` replays it in MuJoCo first.
+Deployment and sim2sim playback of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK. Two tools, two stages: `policy_sim2sim.py` replays the policy in MuJoCo first (sim2sim), `policy_deploy.py` then runs it on the robot (sim2real). Both share the bundled `sdk/` (both architectures) and `models/` (smooth_ft by default, plus config2 and the rough-terrain policy).
 
 ## Environment setup
 
-The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. Everything else is bundled in this repo: both SDK builds live under `sdk/` (selected automatically by machine architecture — x86_64 host or the dog's aarch64 main computer), and the ONNX policies live under `models/` (`smooth_ft` is the default; `config2` and the rough-terrain policy are included). No external files are needed.
+The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. Everything else is bundled in this repo: both SDK builds live under `sdk/` (selected automatically by machine architecture — x86_64 host or the dog's aarch64 main computer), and the ONNX policies live under `models/`. No external files are needed.
 
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
@@ -13,7 +13,33 @@ pip install numpy onnxruntime      # deployment
 pip install mujoco pygame-ce       # optional: sim2sim playback
 ```
 
-## SDK source and real-robot prerequisites
+## Sim2sim: MuJoCo playback
+
+`policy_sim2sim.py` replays the same ONNX policy in MuJoCo before touching the robot. It patches the training URDF on the fly (floating base, absolute mesh paths, and an injected floor because the URDF world has no ground), then runs the identical pipeline as deployment: the observation/action constants are imported from `policy_deploy.py`, physics runs at the training rate of 200 Hz with the policy at 50 Hz, PD gains `kp=20`/`kd=0.7` and the 28 Nm effort limit match training, and joint targets use the same SDK-window clamp with clip counting. The base-frame angular velocity comes from free-joint `qvel[3:6]` (verified against quaternion finite differences).
+
+The floor is a light plane with dark grid strips every meter (visual-only geoms, no physics) so walking is visible. It deliberately avoids textures: on this machine procedural textures rendered offscreen but were silently dropped by the GLFW viewer's context (verified by capturing the actual window), while plain geometry always renders.
+
+```bash
+python policy_sim2sim.py --headless 500 --command 0.5 0 0   # no-viewer smoke test
+python policy_sim2sim.py                                    # interactive: 3D viewer + control panel
+```
+
+Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's exact keyboard semantics: the command is the sum over keys held in the panel — hold to move, release to stop, combinations work, and the command starts at zero (the robot stands until you press). Binding matches Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset the robot. The camera lookat follows the robot each frame (mouse orbit/zoom still work). Falls (base below `0.2 m`) auto-reset. The pygame panel exists because the viewer's key callback has no release events; it is a plain software window, avoiding the offscreen EGL/GLX contexts that failed on some sessions of this machine.
+
+`--native-viewer` runs the viewer alone (its key callback fires once per press with no release/repeat events — verified by synthetic key injection — so keys there stay active until cleared). Use sim2sim to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
+
+## Sim2real: robot deployment
+
+### Quick start
+
+```bash
+cd /home/tangyang/workspace/zsl_deploy
+python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
+```
+
+The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, and `--web-control`.
+
+### SDK source and real-robot prerequisites
 
 The bundled `sdk/` binaries come from the vendor's official SDK repository [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git) (online docs: [zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)), distributed under the **BSD 3-Clause License** (Copyright (c) 2025, ZsiBot). Only the two `.so` files per architecture were copied into this repo; the full license text is preserved at `sdk/LICENSE` as its binary-redistribution clause requires.
 
@@ -25,31 +51,7 @@ Before real-robot deployment, the SDK repo's own requirements must be satisfied 
 - Only one SDK client may connect at a time — the vendor remote/app is locked out while this script runs, and vice versa.
 - Keep system resources free: the SDK docs warn that motion control can fail under resource starvation.
 
-## Quick start
-
-```bash
-cd /home/tangyang/workspace/zsl_deploy
-python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
-```
-
-The default model is the `smooth_ft` policy. Pass `--model` to load another exported policy (e.g. `config2` or the rough-terrain run); the interface is checked at startup, so a policy with a different layout fails loudly.
-
-## Sim2sim playback in MuJoCo
-
-`policy_sim2sim.py` replays the same ONNX policy in MuJoCo before touching the robot. It patches the training URDF on the fly (floating base, absolute mesh paths, and an injected floor because the URDF world has no ground), then runs the identical pipeline as deployment: the observation/action constants are imported from `policy_deploy.py`, physics runs at the training rate of 200 Hz with the policy at 50 Hz, PD gains `kp=20`/`kd=0.7` and the 28 Nm effort limit match training, and joint targets use the same SDK-window clamp with clip counting. The base-frame angular velocity comes from free-joint `qvel[3:6]` (verified against quaternion finite differences).
-
-The floor is a light plane with dark grid strips every meter (visual-only geoms, no physics) so walking is visible. It deliberately avoids textures: on this machine procedural textures rendered offscreen but were silently dropped by the GLFW viewer's context (verified by capturing the actual window), while plain geometry always renders.
-
-```bash
-python policy_sim2sim.py --headless 500 --command 0.5 0 0   # no-viewer smoke test
-python policy_sim2sim.py                                    # interactive: 3D viewer + control panel
-```
-
-Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's exact keyboard semantics: the command is the sum over keys held in the panel — hold to move, release to stop, combinations work, and the command starts at zero (the robot stands until you press). Binding matches Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset the robot. The camera lookat follows the robot each frame (mouse orbit/zoom still work). Falls (base below `0.2 m`) auto-reset. The pygame panel exists because the viewer's key callback has no release events; it is a plain software window, avoiding the offscreen EGL/GLX contexts that failed on some sessions of this machine. Requires `pip install pygame-ce`.
-
-`--native-viewer` runs the viewer alone (its key callback fires once per press with no release/repeat events — verified by synthetic key injection — so keys there stay active until cleared). Use it to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
-
-## Where to run and what to change
+### Where to run and what to change
 
 The two modes differ in only two things: which machine runs the script, and where the dog pushes its state (`target_ip` in the dog-side `/opt/export/config/sdk_config.yaml` — every change requires a robot reboot to take effect). The `LOCAL_IP`/`DOG_IP` constants in `policy_deploy.py` carry the host-mode defaults; each also has a CLI flag.
 
@@ -61,9 +63,8 @@ The two modes differ in only two things: which machine runs the script, and wher
 
 **Deploy on the dog (onboard mode)**
 
-1. Copy the repo over: `scp -r zsl_deploy l1:~/` — the bundled `sdk/aarch64` build is picked automatically, no `--sdk-lib` needed.
-2. On the dog, set `target_ip: "192.168.234.1"` (the dog's own ap0 address, matching the factory backup), then reboot the dog.
-3. Run over SSH:
+1. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.1"` (the dog's own ap0 address, matching the factory backup), then reboot the dog.
+2. Run over SSH:
 
 ```bash
 python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
@@ -72,7 +73,7 @@ python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
 
 `--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching `target_ip` between modes always requires a reboot, and the other side has no SDK connection while it points elsewhere; only one SDK client may be active at a time.
 
-## Keyboard state machine
+### Keyboard state machine
 
 ```bash
 python policy_deploy.py
@@ -88,18 +89,16 @@ While testing:
 - `Space` clears the command immediately; releasing a key zeroes it after the same timeout.
 - The hidden `--keyboard` and `--command` options remain accepted for old launch files but are ignored.
 
-## Web control (Retroid / phone)
+### Web control (Retroid / phone)
 
 `--web-control [PORT]` starts a built-in HTTP server (default 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `LOW_SPEED`/`TURN_SPEED` with a dead zone; if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
 
-Use `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, and `--web-control` to override defaults.
-
-## Policy action handling
+### Policy action handling
 
 Experimental variant: raw policy actions are **not** amplitude-clamped. Joint targets are `default pose + ACTION_SCALE * raw action`, then clamped to the hard windows enforced by the SDK's `sendMotorCmd` (abad `±0.48`, hip `-1.15~2.97`, knee `-2.9~-0.65` rad) with a small inward margin (`1e-3 rad`): float32 cannot represent the knee/hip bounds exactly and rounds to the outside, so a target pinned at an edge would still be rejected. The 1 Hz status print shows `clip : N` whenever the clamp engaged during the last second, which quantifies how far the policy wants to exceed the hardware windows.
 
 The initial policy gains `kp=20`, `kd=0.7` match the training actuator stiffness/damping; change them only after hardware validation.
 
-## Shutdown and damping
+### Shutdown and damping
 
 Every exit path (`d`, `X`, `Ctrl-C`, or a sender error) switches to the legacy LowLevel damping command (`kp=0`, `kd=3`) at the measured current pose and holds it for `--stop-hold-seconds` so the robot can naturally lower itself. The stand-up intermediate pose is never commanded during shutdown. The SDK documents that HighLevel and LowLevel cannot be used concurrently, so this deployment keeps one LowLevel connection rather than trying to call `HighLevel.passive()` in parallel. This software does not replace the robot's physical emergency stop.
