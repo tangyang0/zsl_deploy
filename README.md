@@ -40,11 +40,11 @@ The default model is the `smooth_ft` policy. Pass `--model` to load another expo
 
 **Host mode (default)**: run on the inference machine over WiFi. Local IP `192.168.234.16`, dog `192.168.234.1`. Override with `--local-ip`/`--dog-ip` if the wireless address differs. Requires the dog-side `/opt/export/config/sdk_config.yaml` to contain `target_ip: "192.168.234.16"` (the motion controller pushes state to this address; changes need a robot reboot to take effect).
 
-**Onboard mode**: run on the dog's main computer (`ssh l1`, files staged in `~/zsl_deploy_onboard`, SDK in `sdk/`). Set the dog-side `target_ip` to `127.0.0.1` and reboot, then:
+**Onboard mode**: run on the dog's main computer (`ssh l1`, files staged in `~/zsl_deploy_onboard`, SDK in `sdk/`). Set the dog-side `target_ip` to `192.168.234.1` (the dog's own ap0 address, matching the factory backup) and reboot, then:
 
 ```bash
 python3 policy_deploy.py --sdk-lib sdk \
-    --local-ip 127.0.0.1 --dog-ip 192.168.234.1 --model models/<policy>.onnx
+    --local-ip 192.168.234.1 --dog-ip 192.168.234.1 --model models/<policy>.onnx
 ```
 
 `--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching the dog-side `target_ip` between host and onboard mode always requires a reboot, and the other side loses its SDK connection while it points elsewhere. Only one SDK client may be active at a time.
