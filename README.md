@@ -64,13 +64,12 @@ python policy_deploy.py --key-timeout 0.20
 ```
 
 Use `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, and `--port` to override
-the paths or network settings. `policy_preview.py` uses the same default rough
-model and only performs one inference after receiving a state.
+the paths or network settings.
 
 The damping state is implemented with the legacy LowLevel damping command
 (`kp=0`, `kd=3`) at the measured current pose. The SDK documents that
 HighLevel and LowLevel cannot be used concurrently, so this deployment keeps
 one LowLevel connection rather than trying to call `HighLevel.passive()` in
 parallel. This software does not replace the robot's physical emergency
-stop. Do not run the preview, state test, and deployment programs at the same
+stop. Do not run the state test and deployment programs at the same
 time because they each create an SDK connection.
