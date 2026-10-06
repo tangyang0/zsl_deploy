@@ -35,9 +35,15 @@ import numpy as np
 import onnxruntime as ort
 
 
-DEFAULT_SDK_LIB = "/home/tangyang/workspace/genisom_l1_sdk_old/lib/zsl-1/x86_64"
-# DEFAULT_MODEL = ("/home/tangyang/workspace/robot_workflow/runs/config2/2026-09-18_08-50-14_513475_fresh/exported/policy.onnx")
-DEFAULT_MODEL = ("/home/tangyang/workspace/robot_lab/logs/rsl_rl/zsibot_zsl1_flat/ty_2026-09-23_18-56-21_smooth_ft/exported/policy.onnx")
+# SDK and models are bundled in this repo; the SDK directory is selected by
+# machine architecture so the same tree runs on the x86_64 host and the dog's
+# aarch64 main computer without --sdk-lib.
+_REPO_DIR = Path(__file__).resolve().parent
+_ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(
+    os.uname().machine, os.uname().machine
+)
+DEFAULT_SDK_LIB = str(_REPO_DIR / "sdk" / _ARCH)
+DEFAULT_MODEL = str(_REPO_DIR / "models" / "smooth_ft.onnx")
 LOCAL_IP = "192.168.234.16"
 DOG_IP = "192.168.234.1"
 PORT = 43988

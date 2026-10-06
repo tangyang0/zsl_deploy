@@ -4,7 +4,7 @@ Deployment and sim2sim playback of exported RobotLab velocity policies (flat or 
 
 ## Environment setup
 
-The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. The SDK itself needs no installation: `policy_deploy.py` loads the binding at runtime from `--sdk-lib` (default: the x86_64 build inside `genisom_l1_sdk_old`).
+The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. Everything else is bundled in this repo: both SDK builds live under `sdk/` (selected automatically by machine architecture — x86_64 host or the dog's aarch64 main computer), and the ONNX policies live under `models/` (`smooth_ft` is the default; `config2` and the rough-terrain policy are included). No external files are needed.
 
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
@@ -12,6 +12,18 @@ conda activate zsl_sdk_py310
 pip install numpy onnxruntime      # deployment
 pip install mujoco pygame-ce       # optional: sim2sim playback
 ```
+
+## SDK source and real-robot prerequisites
+
+The bundled `sdk/` binaries come from the vendor's official SDK repository [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git) (online docs: [zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)), distributed under the **BSD 3-Clause License** (Copyright (c) 2025, ZsiBot). Only the two `.so` files per architecture were copied into this repo; the full license text is preserved at `sdk/LICENSE` as its binary-redistribution clause requires.
+
+Before real-robot deployment, the SDK repo's own requirements must be satisfied first:
+
+- **Version match**: the SDK protocol differs across firmware versions. Check the dog's version with `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` and use the matching SDK release — this repo bundles the one verified on our unit; for anything else go to the upstream repo.
+- The vendor recommends running the SDK program on a compute board **wired to the robot** (ethernet) rather than WiFi.
+- The dog-side `/opt/export/config/sdk_config.yaml` `target_ip` must point at the controlling machine, and the dog must be **rebooted** after changing it.
+- Only one SDK client may connect at a time — the vendor remote/app is locked out while this script runs, and vice versa.
+- Keep system resources free: the SDK docs warn that motion control can fail under resource starvation.
 
 ## Quick start
 
@@ -41,11 +53,11 @@ Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame cont
 
 **Host mode (default)**: run on the inference machine over WiFi. Local IP `192.168.234.16`, dog `192.168.234.1`. Override with `--local-ip`/`--dog-ip` if the wireless address differs. Requires the dog-side `/opt/export/config/sdk_config.yaml` to contain `target_ip: "192.168.234.16"` (the motion controller pushes state to this address; changes need a robot reboot to take effect).
 
-**Onboard mode**: run on the dog's main computer (`ssh l1`, files staged in `~/zsl_deploy_onboard`, SDK in `sdk/`). Set the dog-side `target_ip` to `192.168.234.1` (the dog's own ap0 address, matching the factory backup) and reboot, then:
+**Onboard mode**: run on the dog's main computer — copy this whole repo over (`scp -r zsl_deploy l1:~/`, the bundled `sdk/aarch64` build is picked automatically). Set the dog-side `target_ip` to `192.168.234.1` (the dog's own ap0 address, matching the factory backup) and reboot, then:
 
 ```bash
-python3 policy_deploy.py --sdk-lib sdk \
-    --local-ip 192.168.234.1 --dog-ip 192.168.234.1 --model models/<policy>.onnx
+python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
+    --model models/<policy>.onnx
 ```
 
 `--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching the dog-side `target_ip` between host and onboard mode always requires a reboot, and the other side loses its SDK connection while it points elsewhere. Only one SDK client may be active at a time.

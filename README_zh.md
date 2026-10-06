@@ -4,7 +4,7 @@
 
 ## 环境搭建
 
-SDK 的 Python 绑定按 CPython 3.10 编译（`mc_sdk_zsl_1_py.cpython-310-*`），因此环境必须是 Python 3.10。部署只需 `numpy` 和 `onnxruntime` 两个 pip 依赖；下面的 MuJoCo 回放额外需要 `pip install mujoco pygame-ce`。SDK 本体免安装：`policy_deploy.py` 运行时通过 `--sdk-lib` 加载绑定（默认指向 `genisom_l1_sdk_old` 内的 x86_64 版本）。
+SDK 的 Python 绑定按 CPython 3.10 编译（`mc_sdk_zsl_1_py.cpython-310-*`），因此环境必须是 Python 3.10。部署只需 `numpy` 和 `onnxruntime` 两个 pip 依赖；下面的 MuJoCo 回放额外需要 `pip install mujoco pygame-ce`。其余全部内置在仓库里：两种架构的 SDK 在 `sdk/` 下（按机器架构自动选择——x86_64 推理机或狗的 aarch64 主控），ONNX 策略在 `models/` 下（默认 `smooth_ft`，含 `config2` 和粗糙地形策略），不依赖任何外部文件。
 
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
@@ -12,6 +12,18 @@ conda activate zsl_sdk_py310
 pip install numpy onnxruntime      # 部署
 pip install mujoco pygame-ce       # 可选：sim2sim 回放
 ```
+
+## SDK 来源与真机部署前提
+
+内置 `sdk/` 的二进制来自厂商官方 SDK 仓库 [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)（在线文档：[zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)），采用 **BSD 3-Clause 协议**（Copyright (c) 2025, ZsiBot）。本仓库只按架构拷入了每侧两个 `.so` 文件，并按其二进制再分发条款在 `sdk/LICENSE` 保留了协议全文。
+
+真机部署前，须先满足 SDK 仓库自身的要求：
+
+- **版本匹配**：SDK 与机器狗本体内程序的通讯协议随版本不同。在狗上执行 `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` 查询本机版本，并选用对应版本的 SDK——本仓库内置的是在我们这台狗上验证过的版本，其他版本请到上游仓库获取。
+- 厂商建议 SDK 程序运行在与机器人**网线直连**的算力板上，避免 WiFi 干扰。
+- 狗端 `/opt/export/config/sdk_config.yaml` 的 `target_ip` 必须指向控制端机器，且修改后需**重启机器狗**生效。
+- 同一时刻只允许一个 SDK 客户端连接——本脚本运行期间厂商遥控器/App 被屏蔽，反之亦然。
+- 保证系统资源充足：SDK 文档警告资源不足时可能出现运动控制模块失效。
 
 ## 快速开始
 
@@ -41,11 +53,11 @@ python policy_sim2sim.py                                    # 交互：3D viewer
 
 **推理机模式（默认）**：通过 WiFi 在推理机上运行。本机 IP `192.168.234.16`，机器狗 `192.168.234.1`，无线地址不同时用 `--local-ip`/`--dog-ip` 覆盖。前提是狗端 `/opt/export/config/sdk_config.yaml` 里为 `target_ip: "192.168.234.16"`（运控按此地址推送状态；改动需重启机器狗生效）。
 
-**板载模式**：在狗的主控上运行（`ssh l1`，文件在 `~/zsl_deploy_onboard`，SDK 在 `sdk/`）。将狗端 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址，与出厂备份一致）并重启后：
+**板载模式**：在狗的主控上运行——把整个仓库拷过去（`scp -r zsl_deploy l1:~/`，内置的 `sdk/aarch64` 会自动选用）。将狗端 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址，与出厂备份一致）并重启后：
 
 ```bash
-python3 policy_deploy.py --sdk-lib sdk \
-    --local-ip 192.168.234.1 --dog-ip 192.168.234.1 --model models/<policy>.onnx
+python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
+    --model models/<policy>.onnx
 ```
 
 即使在狗上运行，`--dog-ip` 也必须保持 `192.168.234.1`：`mc_ctrl` 的指令套接字绑定在 ap0 地址上，从不监听 loopback。在推理机/板载两种模式之间切换 `target_ip` 都需要重启，且另一侧在此期间收不到 SDK 数据；同一时刻只允许一个 SDK 客户端。
