@@ -49,18 +49,28 @@ Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame cont
 
 `--native-viewer` runs the viewer alone (its key callback fires once per press with no release/repeat events — verified by synthetic key injection — so keys there stay active until cleared). Use it to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
 
-## Where to run and network settings
+## Where to run and what to change
 
-**Host mode (default)**: run on the inference machine over WiFi. Local IP `192.168.234.16`, dog `192.168.234.1`. Override with `--local-ip`/`--dog-ip` if the wireless address differs. Requires the dog-side `/opt/export/config/sdk_config.yaml` to contain `target_ip: "192.168.234.16"` (the motion controller pushes state to this address; changes need a robot reboot to take effect).
+The two modes differ in only two things: which machine runs the script, and where the dog pushes its state (`target_ip` in the dog-side `/opt/export/config/sdk_config.yaml` — every change requires a robot reboot to take effect). The `LOCAL_IP`/`DOG_IP` constants in `policy_deploy.py` carry the host-mode defaults; each also has a CLI flag.
 
-**Onboard mode**: run on the dog's main computer — copy this whole repo over (`scp -r zsl_deploy l1:~/`, the bundled `sdk/aarch64` build is picked automatically). Set the dog-side `target_ip` to `192.168.234.1` (the dog's own ap0 address, matching the factory backup) and reboot, then:
+**Deploy on the inference machine (host mode, default)**
+
+1. Connect the machine to the dog's WiFi AP; it should get `192.168.234.16` (the shipped default). If DHCP gave a different address, edit `LOCAL_IP` or pass `--local-ip <actual address>`.
+2. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.16"` (the dog pushes state to this address), then reboot the dog.
+3. Run `python policy_deploy.py --web-control` — nothing else to change.
+
+**Deploy on the dog (onboard mode)**
+
+1. Copy the repo over: `scp -r zsl_deploy l1:~/` — the bundled `sdk/aarch64` build is picked automatically, no `--sdk-lib` needed.
+2. On the dog, set `target_ip: "192.168.234.1"` (the dog's own ap0 address, matching the factory backup), then reboot the dog.
+3. Run over SSH:
 
 ```bash
 python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
     --model models/<policy>.onnx
 ```
 
-`--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching the dog-side `target_ip` between host and onboard mode always requires a reboot, and the other side loses its SDK connection while it points elsewhere. Only one SDK client may be active at a time.
+`--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching `target_ip` between modes always requires a reboot, and the other side has no SDK connection while it points elsewhere; only one SDK client may be active at a time.
 
 ## Keyboard state machine
 

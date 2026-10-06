@@ -49,18 +49,28 @@ python policy_sim2sim.py                                    # 交互：3D viewer
 
 `--native-viewer` 只开原生 viewer（其按键回调每次按下只触发一次、无重复/松开事件——已用合成按键注入验证——因此该模式下按键持续生效直到清零）。上真机前先用它筛策略：例如 `smooth_ft` 在此以 `0.45 m/s` 跟踪 `0.5 m/s` 指令，而 `config2` 在 MuJoCo 里只吃低速（`0.25` 可跟踪、`0.5` 摔倒），尽管它在 Isaac 里能走。
 
-## 运行位置与网络设置
+## 在哪运行、各要改什么
 
-**推理机模式（默认）**：通过 WiFi 在推理机上运行。本机 IP `192.168.234.16`，机器狗 `192.168.234.1`，无线地址不同时用 `--local-ip`/`--dog-ip` 覆盖。前提是狗端 `/opt/export/config/sdk_config.yaml` 里为 `target_ip: "192.168.234.16"`（运控按此地址推送状态；改动需重启机器狗生效）。
+两种模式的区别只有两件事：脚本在哪台机器上跑，以及狗把状态推给谁（狗端 `/opt/export/config/sdk_config.yaml` 的 `target_ip`，每次修改都必须重启狗才生效）。`policy_deploy.py` 里的常量 `LOCAL_IP`/`DOG_IP` 是推理机模式的默认值，也都有对应的命令行参数。
 
-**板载模式**：在狗的主控上运行——把整个仓库拷过去（`scp -r zsl_deploy l1:~/`，内置的 `sdk/aarch64` 会自动选用）。将狗端 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址，与出厂备份一致）并重启后：
+**在推理机上部署（默认模式）**
+
+1. 推理机连狗的 WiFi AP，正常会拿到 `192.168.234.16`（出厂默认）。若 DHCP 分的不是这个地址，改 `LOCAL_IP` 常量或运行时加 `--local-ip <实际地址>`。
+2. 在狗上把 `/opt/export/config/sdk_config.yaml` 改为 `target_ip: "192.168.234.16"`（狗按此地址推送状态），然后重启狗。
+3. 运行 `python policy_deploy.py --web-control`，其他什么都不用改。
+
+**在狗上部署（板载模式）**
+
+1. 整仓拷过去：`scp -r zsl_deploy l1:~/`——内置 `sdk/aarch64` 自动选用，不需要 `--sdk-lib`。
+2. 在狗上把 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址，与出厂备份一致），重启狗。
+3. SSH 上去运行：
 
 ```bash
 python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
     --model models/<policy>.onnx
 ```
 
-即使在狗上运行，`--dog-ip` 也必须保持 `192.168.234.1`：`mc_ctrl` 的指令套接字绑定在 ap0 地址上，从不监听 loopback。在推理机/板载两种模式之间切换 `target_ip` 都需要重启，且另一侧在此期间收不到 SDK 数据；同一时刻只允许一个 SDK 客户端。
+`--dog-ip` 即使在狗上也必须写 `192.168.234.1`：`mc_ctrl` 的指令套接字绑在 ap0 地址上、从不监听 loopback。两种模式间切换 `target_ip` 都要重启狗，且指向前一侧时另一侧没有 SDK 连接；同一时刻只允许一个 SDK 客户端。
 
 ## 键盘状态机
 
