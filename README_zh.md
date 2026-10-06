@@ -65,6 +65,10 @@ python policy_deploy.py
 - `空格` 立即清零；松开按键同样在超时后归零。
 - 隐藏参数 `--keyboard`、`--command` 为兼容旧启动脚本保留，实际被忽略。
 
+## Web 控制（Retroid / 手机）
+
+`--web-control [端口]` 开启内置 HTTP 服务（默认 8080），浏览器打开即得单页触摸手柄：左侧虚拟摇杆控制 vx/vy，右摇杆 X 轴控制转向；在 Retroid Pocket 4 这类安卓掌机上，浏览器 Gamepad API 会直接读取**实体摇杆**。页面上 `站起 (s)`、`测试 (t)`、`急停 (d)` 按钮驱动同一套状态机。指令为归一化摇杆值乘 `LOW_SPEED`/`TURN_SPEED`（带死区）；页面停止发送超过 0.3 秒即回落到键盘指令源。网页**故意**不提供退出功能：关闭浏览器或断 WiFi 只会令指令归零，绝不会杀掉部署进程。原厂 App 无法复用：它独占 SDK 通道，你的策略运行时 App 根本没有链路。
+
 可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout` 覆盖默认值。
 
 ## 策略动作处理

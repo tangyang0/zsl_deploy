@@ -65,6 +65,10 @@ While testing:
 - `Space` clears the command immediately; releasing a key zeroes it after the same timeout.
 - The hidden `--keyboard` and `--command` options remain accepted for old launch files but are ignored.
 
+## Web control (Retroid / phone)
+
+`--web-control [PORT]` starts a built-in HTTP server (default 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `LOW_SPEED`/`TURN_SPEED` with a dead zone; if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
+
 Use `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, and `--key-timeout` to override defaults.
 
 ## Policy action handling

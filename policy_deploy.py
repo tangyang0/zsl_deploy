@@ -20,6 +20,7 @@ the damping state machine are retained.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import select
 import sys
@@ -27,6 +28,7 @@ import termios
 import threading
 import time
 import tty
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import numpy as np
@@ -101,6 +103,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--stop-hold-seconds", type=float, default=3.0,
         help="退出时继续发送当前姿态阻尼命令的时间（秒）",
+    )
+    parser.add_argument(
+        "--web-control", type=int, nargs="?", const=8080, default=None, metavar="PORT",
+        help="开启内置 Web 控制页（默认端口 8080）：Retroid/手机浏览器打开，"
+             "触摸双摇杆或浏览器 Gamepad API 实体摇杆，含 站起/测试/急停 按钮",
     )
     parser.add_argument("--dry-run", action="store_true", help="Validate and infer once without SDK/robot")
     return parser.parse_args()
@@ -424,6 +431,166 @@ def safe_damping_shutdown(robot, sdk, seconds):
     hold_damping(robot, sdk, current_q, seconds)
 
 
+class WebControl:
+    """Built-in web gamepad: serves a single HTML page with two touch
+    joysticks plus the browser Gamepad API (so the Retroid Pocket 4's
+    physical sticks work too) and receives commands over HTTP POST.
+    Command values are normalized [-1, 1] and scaled in the main loop.
+    """
+
+    def __init__(self, port: int):
+        self.command = np.zeros(3, dtype=np.float32)
+        self.events: set = set()
+        self.last_rx = 0.0
+        self.info = {"state": "-", "command": [0.0, 0.0, 0.0], "clip": 0}
+        self.lock = threading.Lock()
+        ctrl = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _send(self, code, body: bytes, ctype: str):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if self.path == "/":
+                    self._send(200, WEB_PAGE.encode(), "text/html; charset=utf-8")
+                elif self.path == "/state":
+                    with ctrl.lock:
+                        self._send(200, json.dumps(ctrl.info).encode(), "application/json")
+                else:
+                    self._send(404, b"not found", "text/plain")
+
+            def do_POST(self):
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                    data = json.loads(self.rfile.read(length) or b"{}")
+                except (ValueError, json.JSONDecodeError):
+                    self._send(400, b"bad json", "text/plain")
+                    return
+                if self.path == "/cmd":
+                    with ctrl.lock:
+                        ctrl.command[:] = (
+                            float(data.get("vx", 0.0)),
+                            float(data.get("vy", 0.0)),
+                            float(data.get("wz", 0.0)),
+                        )
+                        ctrl.last_rx = time.monotonic()
+                    self._send(204, b"", "text/plain")
+                elif self.path == "/event":
+                    event = str(data.get("event", ""))
+                    if event in ("STANDUP", "TEST", "DAMPING"):
+                        with ctrl.lock:
+                            ctrl.events.add(event)
+                    self._send(204, b"", "text/plain")
+                else:
+                    self._send(404, b"not found", "text/plain")
+
+            def log_message(self, *_):
+                pass
+
+        self.httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True, name="web-control").start()
+
+    def active(self) -> bool:
+        return time.monotonic() - self.last_rx < 0.3
+
+    def scaled_command(self) -> np.ndarray:
+        with self.lock:
+            return np.clip(self.command, -1.0, 1.0) * np.array(
+                [LOW_SPEED, LOW_SPEED, TURN_SPEED], np.float32
+            )
+
+    def drain_events(self) -> set:
+        with self.lock:
+            events, self.events = self.events, set()
+            return events
+
+    def set_info(self, **kwargs):
+        with self.lock:
+            self.info.update(kwargs)
+
+
+WEB_PAGE = """<!doctype html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ZSL-1 Web 控制</title>
+<style>
+  html,body{height:100%}
+  body{margin:0;background:#1b1f24;color:#d8dee6;font-family:sans-serif;
+       display:flex;flex-direction:column;height:100vh;height:100dvh;
+       touch-action:none;user-select:none;overflow:hidden}
+  #top{padding:6px 12px;font-size:14px;background:#11151a;flex:none}
+  #top b{color:#7ee787}
+  #btns{display:flex;gap:10px;padding:8px;justify-content:center;flex:none}
+  button{flex:1;padding:14px 0;font-size:17px;border:none;border-radius:10px;color:#fff}
+  #b_s{background:#2d7d46}#b_t{background:#2a5d9f}
+  #b_d{background:#b3352c;font-weight:bold;font-size:19px}
+  #pads{flex:1;min-height:0;display:flex;justify-content:space-around;align-items:center}
+  .pad{border-radius:50%;background:#262c33;position:relative;border:2px solid #3a424c;
+       width:min(38vw,26vh,230px);height:min(38vw,26vh,230px);
+       width:min(38vw,26dvh,230px);height:min(38vw,26dvh,230px)}
+  .stick{position:absolute;left:50%;top:50%;width:34%;height:34%;border-radius:50%;
+         background:#5a86ff;transform:translate(-50%,-50%);opacity:.85}
+</style></head><body>
+<div id="top">状态: <b id="st">-</b> &nbsp;|&nbsp; 指令: <span id="cm">0.00 0.00 0.00</span>
+ &nbsp;|&nbsp; <span id="src">触摸</span></div>
+<div id="btns">
+  <button id="b_s" onclick="sendEvent('STANDUP')">站起 (s)</button>
+  <button id="b_t" onclick="sendEvent('TEST')">测试 (t)</button>
+  <button id="b_d" onclick="sendEvent('DAMPING')">急停 (d)</button>
+</div>
+<div id="pads">
+  <div class="pad" id="padL"><div class="stick" id="stickL"></div></div>
+  <div class="pad" id="padR"><div class="stick" id="stickR"></div></div>
+</div>
+<script>
+const dead = 0.08;
+let L = {x:0, y:0}, R = {x:0, y:0}, padPointer = {};
+function clamp(v){return Math.max(-1, Math.min(1, v));}
+function dz(v){return Math.abs(v) < dead ? 0 : (v - Math.sign(v)*dead)/(1-dead);}
+function bindPad(el, store){
+  el.addEventListener('pointerdown', e=>{padPointer[e.pointerId]=el;el.setPointerCapture(e.pointerId);move(e);});
+  el.addEventListener('pointermove', e=>{if(padPointer[e.pointerId]===el)move(e);});
+  const end = e=>{if(padPointer[e.pointerId]===el){delete padPointer[e.pointerId];store.x=0;store.y=0;}};
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  function move(e){
+    const r = el.getBoundingClientRect();
+    store.x = clamp((e.clientX-(r.left+r.width/2))/(r.width/2));
+    store.y = clamp((e.clientY-(r.top+r.height/2))/(r.height/2));
+  }
+}
+bindPad(document.getElementById('padL'), L);
+bindPad(document.getElementById('padR'), R);
+let gp = null;
+window.addEventListener('gamepadconnected', e=>{gp=e.gamepad;document.getElementById('src').textContent='手柄:'+gp.id.slice(0,18);});
+window.addEventListener('gamepaddisconnected', ()=>{gp=null;document.getElementById('src').textContent='触摸';});
+function axes(){
+  if(gp){
+    const g = navigator.getGamepads()[gp.index];
+    if(g) return {vx:dz(-g.axes[1]), vy:dz(g.axes[0]), wz:dz(-g.axes[2])};
+  }
+  return {vx:dz(-L.y), vy:dz(L.x), wz:dz(R.x)};
+}
+function sendEvent(ev){fetch('/event',{method:'POST',body:JSON.stringify({event:ev})});}
+setInterval(()=>{
+  const a = axes();
+  fetch('/cmd',{method:'POST',body:JSON.stringify(a)});
+  document.getElementById('cm').textContent =
+    a.vx.toFixed(2)+' '+a.vy.toFixed(2)+' '+a.wz.toFixed(2);
+},50);
+setInterval(async()=>{
+  try{ const s = await (await fetch('/state')).json();
+       document.getElementById('st').textContent = s.state + (s.clip ? ' (限位'+s.clip+')' : '');
+  }catch(e){}
+},500);
+</script></body></html>
+"""
+
+
 def main(args: argparse.Namespace):
     print("实验版本：策略动作无限幅；关节目标 = 默认姿态 + ACTION_SCALE × 原始动作，并按 SDK 关节限位裁剪")
     model_path = Path(args.model).expanduser().resolve()
@@ -448,6 +615,11 @@ def main(args: argparse.Namespace):
 
     sys.path.insert(0, args.sdk_lib)
     import mc_sdk_zsl_1_py as sdk
+
+    web = None
+    if args.web_control:
+        web = WebControl(args.web_control)
+        print(f"Web 控制页已开启: http://<本机IP>:{args.web_control} （Retroid/手机浏览器打开）")
 
     robot = sdk.LowLevel()
     robot.initRobot(args.local_ip, args.port, args.dog_ip)
@@ -480,6 +652,8 @@ def main(args: argparse.Namespace):
                 if sender is not None and sender.error is not None:
                     raise RuntimeError(f"发送线程停止：{sender.error}")
                 stop, events = keyboard.poll()
+                if web is not None:
+                    events |= web.drain_events()
                 if stop:
                     print("收到 X，退出控制")
                     break
@@ -525,6 +699,10 @@ def main(args: argparse.Namespace):
                     print("收到 t：进入策略测试；无方向键时 command=0")
 
                 command = keyboard.command.copy()
+                if web is not None:
+                    if web.active():
+                        command = web.scaled_command()
+                    web.set_info(state=state, command=np.round(command, 3).tolist(), clip=clip_steps)
                 if now - last_check >= 0.1:
                     check_live(robot)
                     last_check = now
