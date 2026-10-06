@@ -50,29 +50,28 @@ The SDK repo's own requirements must be satisfied before deployment:
 
 #### Where to run and what to change
 
-The two modes differ in only two things: which machine runs the script, and where the dog pushes its state (`target_ip` in the dog-side `/opt/export/config/sdk_config.yaml` — every change requires a robot reboot to take effect). The `LOCAL_IP`/`DOG_IP` constants in `policy_deploy.py` carry the host-mode defaults; each also has a CLI flag.
+The two modes differ in only two things: which machine runs the script, and where the dog pushes its state (`target_ip` in the dog-side `/opt/export/config/sdk_config.yaml` — every change requires a robot reboot to take effect). The `LOCAL_IP`/`DOG_IP` constants both default to `192.168.234.1` — **onboard mode (running on the dog) is the default**, no network flags needed.
 
-**Deploy on the inference machine (host mode, default)**
-
-1. Connect the machine to the dog's WiFi AP; it should get `192.168.234.16` (the shipped default). If DHCP gave a different address, edit `LOCAL_IP` or pass `--local-ip <actual address>`.
-2. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.16"` (the dog pushes state to this address), then reboot the dog.
-3. Run — nothing else to change:
-
-   ```bash
-   python policy_deploy.py --web-control
-   ```
-
-**Deploy on the dog (onboard mode)**
+**Deploy on the dog (onboard mode, default)**
 
 1. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.1"` (the dog's own ap0 address, matching the factory backup), then reboot the dog.
-2. Run over SSH:
+2. Over SSH, just run:
 
-```bash
-python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
-    --model models/<policy>.onnx
-```
+   ```bash
+   python3 policy_deploy.py --web-control
+   ```
 
-`--dog-ip` must stay `192.168.234.1` even onboard: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching `target_ip` between modes always requires a reboot, and the other side has no SDK connection while it points elsewhere; only one SDK client may be active at a time.
+**Deploy on the inference machine**
+
+1. Connect the machine to the dog's WiFi AP; it should get `192.168.234.16` (the shipped default). If DHCP gave a different address, edit `LOCAL_IP` or pass `--local-ip <actual address>`.
+2. On the dog, set `target_ip: "192.168.234.16"` (the dog pushes state to this address), then reboot the dog.
+3. Run:
+
+   ```bash
+   python policy_deploy.py --local-ip 192.168.234.16 --web-control
+   ```
+
+`--dog-ip` always stays `192.168.234.1`: `mc_ctrl` binds its command socket to the ap0 address, never to loopback. Switching `target_ip` between modes always requires a reboot, and the other side has no SDK connection while it points elsewhere; only one SDK client may be active at a time.
 
 ### Operation
 

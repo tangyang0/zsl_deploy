@@ -50,29 +50,28 @@ python policy_sim2sim.py --native-viewer
 
 #### 部署位置与网络配置
 
-两种模式的区别只有两件事：脚本在哪台机器上跑，以及狗把状态推给谁（狗端 `/opt/export/config/sdk_config.yaml` 的 `target_ip`，每次修改都必须重启狗才生效）。`policy_deploy.py` 里的常量 `LOCAL_IP`/`DOG_IP` 是推理机模式的默认值，也都有对应的命令行参数。
+两种模式的区别只有两件事：脚本在哪台机器上跑，以及狗把状态推给谁（狗端 `/opt/export/config/sdk_config.yaml` 的 `target_ip`，每次修改都必须重启狗才生效）。默认常量 `LOCAL_IP`/`DOG_IP` 均为 `192.168.234.1`——**默认在狗上运行（板载模式）**，无需任何网络参数。
 
-**在推理机上部署（默认模式）**
-
-1. 推理机连狗的 WiFi AP，正常会拿到 `192.168.234.16`（出厂默认）。若 DHCP 分的不是这个地址，改 `LOCAL_IP` 常量或运行时加 `--local-ip <实际地址>`。
-2. 在狗上把 `/opt/export/config/sdk_config.yaml` 改为 `target_ip: "192.168.234.16"`（狗按此地址推送状态），然后重启狗。
-3. 运行，其他什么都不用改：
-
-   ```bash
-   python policy_deploy.py --web-control
-   ```
-
-**在狗上部署（板载模式）**
+**在狗上部署（默认模式）**
 
 1. 在狗上把 `/opt/export/config/sdk_config.yaml` 的 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址，与出厂备份一致），重启狗。
-2. SSH 上去运行：
+2. SSH 上去直接运行：
 
-```bash
-python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 \
-    --model models/<policy>.onnx
-```
+   ```bash
+   python3 policy_deploy.py --web-control
+   ```
 
-`--dog-ip` 即使在狗上也必须写 `192.168.234.1`：`mc_ctrl` 的指令套接字绑在 ap0 地址上、从不监听 loopback。两种模式间切换 `target_ip` 都要重启狗，且指向前一侧时另一侧没有 SDK 连接；同一时刻只允许一个 SDK 客户端。
+**在推理机上部署**
+
+1. 推理机连狗的 WiFi AP，正常会拿到 `192.168.234.16`（出厂默认）。若 DHCP 分的不是这个地址，改 `LOCAL_IP` 常量或运行时加 `--local-ip <实际地址>`。
+2. 在狗上把 `target_ip` 改为 `"192.168.234.16"`（狗按此地址推送状态），然后重启狗。
+3. 运行：
+
+   ```bash
+   python policy_deploy.py --local-ip 192.168.234.16 --web-control
+   ```
+
+`--dog-ip` 恒为 `192.168.234.1`：`mc_ctrl` 的指令套接字绑在 ap0 地址上、从不监听 loopback。两种模式间切换 `target_ip` 都要重启狗，且指向前一侧时另一侧没有 SDK 连接；同一时刻只允许一个 SDK 客户端。
 
 ### 操作
 

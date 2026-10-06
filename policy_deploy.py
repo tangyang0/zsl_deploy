@@ -44,7 +44,10 @@ _ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "
 )
 DEFAULT_SDK_LIB = str(_REPO_DIR / "sdk" / _ARCH)
 DEFAULT_MODEL = str(_REPO_DIR / "models" / "smooth_ft.onnx")
-LOCAL_IP = "192.168.234.16"
+# Default network identity is the ONBOARD mode: the script runs on the dog's
+# main computer and uses the dog's own ap0 address for both ends. To deploy
+# from the inference machine instead, pass --local-ip 192.168.234.16.
+LOCAL_IP = "192.168.234.1"
 DOG_IP = "192.168.234.1"
 PORT = 43988
 SEND_DT = 0.002
@@ -729,7 +732,10 @@ def main(args: argparse.Namespace):
                     obs = build_obs(q, qd, gyro, gravity, command, last_action)
                     t_infer = time.perf_counter()
                     raw_action = np.asarray(session.run([output_name], {input_name: obs[None, :]})[0][0], np.float32)
-                    print(f"infer  : {(time.perf_counter() - t_infer) * 1000.0:.3f} ms")
+                    infer_s = time.perf_counter() - t_infer
+                    if infer_s > POLICY_DT:
+                        print(f"警告: 推理耗时 {infer_s * 1000:.1f} ms 超过控制周期 {POLICY_DT * 1000:.0f} ms"
+                              f"（{1.0 / POLICY_DT:.0f} Hz 控制频率不达标）")
                     if raw_action.shape != (12,) or not np.isfinite(raw_action).all():
                         raise ValueError(f"策略输出异常：shape={raw_action.shape}")
                     last_action = raw_action.copy()
