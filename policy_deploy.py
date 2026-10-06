@@ -727,7 +727,9 @@ def main(args: argparse.Namespace):
                 if state == STATE_TEST and now >= next_infer:
                     q, qd, gyro, gravity = read_q_qd_imu(robot)
                     obs = build_obs(q, qd, gyro, gravity, command, last_action)
+                    t_infer = time.perf_counter()
                     raw_action = np.asarray(session.run([output_name], {input_name: obs[None, :]})[0][0], np.float32)
+                    print(f"infer  : {(time.perf_counter() - t_infer) * 1000.0:.3f} ms")
                     if raw_action.shape != (12,) or not np.isfinite(raw_action).all():
                         raise ValueError(f"策略输出异常：shape={raw_action.shape}")
                     last_action = raw_action.copy()
