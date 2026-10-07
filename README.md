@@ -81,7 +81,7 @@ The two modes differ in only two things: which machine runs the script, and wher
 python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
 ```
 
-The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-lin-speed`, `--max-yaw-speed`, and `--web-control`.
+The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-x-speed`, `--max-y-speed`, `--max-yaw-speed`, and `--web-control`.
 
 #### Keyboard control
 
@@ -93,7 +93,7 @@ The program keeps the startup pose on the ground and starts **low-level damping*
 
 While testing:
 
-- Arrow keys (or numpad `8/2/4/6`): forward/backward and left/right at `±MAX_LIN_SPEED` (default `1.0 m/s`, the training command limit; tighten with `--max-lin-speed`).
+- Arrow keys (or numpad `8/2/4/6`): forward/backward at `±MAX_X_SPEED` and left/right at `±MAX_Y_SPEED` (defaults `1.0 m/s`, the training command limit; tighten with `--max-x-speed` / `--max-y-speed` — the trained vy range is only ±0.3 m/s).
 - `z` (or numpad `7`): turn left at `+MAX_YAW_SPEED` (default `1.0 rad/s`; tighten with `--max-yaw-speed`); `c` (or numpad `9`): turn right. Play.py's X binding is not used here because `X` is the safe exit.
 - Active directions sum, but a POSIX terminal only auto-repeats the most recently pressed key: holding two direction keys keeps only the last one once `--key-timeout` (default `0.15 s`) expires. Combine directions by tapping alternately, or press one at a time.
 - `Space` clears the command immediately; releasing a key zeroes it after the same timeout.
@@ -105,7 +105,7 @@ While testing:
 python policy_deploy.py --web-control        # or: --web-control 9090 for another port
 ```
 
-This starts a built-in HTTP server (default port 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `MAX_LIN_SPEED`/`MAX_YAW_SPEED` with a dead zone (`--max-lin-speed`/`--max-yaw-speed` apply to the keyboard and the web sticks alike); if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
+This starts a built-in HTTP server (default port 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `MAX_X_SPEED`/`MAX_Y_SPEED`/`MAX_YAW_SPEED` with a dead zone (`--max-x-speed`/`--max-y-speed`/`--max-yaw-speed` apply to the keyboard and the web sticks alike); if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
 
 ### Mechanism and safety
 

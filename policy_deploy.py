@@ -54,9 +54,10 @@ SEND_DT = 0.002
 POLICY_DT = 0.020
 TRANSITION_DT = 2.0
 # Speed caps shared by the keyboard steps and the web-stick scaling; defaults
-# equal the training command limits (lin ±1.0 m/s, yaw ±1.0 rad/s). Tighten
-# per run with --max-lin-speed / --max-yaw-speed.
-MAX_LIN_SPEED = 1.0
+# equal the training command limits (vx/vy ±1.0 m/s, yaw ±1.0 rad/s). Tighten
+# per run with --max-x-speed / --max-y-speed / --max-yaw-speed.
+MAX_X_SPEED = 1.0
+MAX_Y_SPEED = 1.0
 MAX_YAW_SPEED = 1.0
 DAMPING_KD = 3.0
 
@@ -107,9 +108,15 @@ def parse_args() -> argparse.Namespace:
         help="方向键最后一次事件后的保持时间（秒，默认 0.15）",
     )
     parser.add_argument(
-        "--max-lin-speed", type=float, default=MAX_LIN_SPEED, metavar="MPS",
-        help=f"键盘挡位/网页摇杆的线速度上限 m/s（默认 {MAX_LIN_SPEED}，训练指令上限 1.0）",
+        "--max-x-speed", type=float, default=None, metavar="MPS",
+        help=f"前进/后退速度上限 m/s（默认 {MAX_X_SPEED}，训练指令上限 1.0）",
     )
+    parser.add_argument(
+        "--max-y-speed", type=float, default=None, metavar="MPS",
+        help=f"左移/右移速度上限 m/s（默认 {MAX_Y_SPEED}；训练 vy 范围 ±0.3，建议不超过 0.3）",
+    )
+    # Hidden compat for old launch files: fills whichever of x/y was not given.
+    parser.add_argument("--max-lin-speed", type=float, default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--max-yaw-speed", type=float, default=MAX_YAW_SPEED, metavar="RADPS",
         help=f"键盘挡位/网页摇杆的角速度上限 rad/s（默认 {MAX_YAW_SPEED}，训练指令上限 1.0）",
@@ -128,7 +135,13 @@ def parse_args() -> argparse.Namespace:
              "触摸双摇杆或浏览器 Gamepad API 实体摇杆，含 站起/测试/急停 按钮",
     )
     parser.add_argument("--dry-run", action="store_true", help="Validate and infer once without SDK/robot")
-    return parser.parse_args()
+    args = parser.parse_args()
+    # Hidden --max-lin-speed (old launch files) fills unspecified x/y caps.
+    if args.max_x_speed is None:
+        args.max_x_speed = args.max_lin_speed if args.max_lin_speed is not None else MAX_X_SPEED
+    if args.max_y_speed is None:
+        args.max_y_speed = args.max_lin_speed if args.max_lin_speed is not None else MAX_Y_SPEED
+    return args
 
 
 def quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -291,17 +304,17 @@ class KeyboardCommand:
     }
     _event_keys = {b"s": "STANDUP", b"t": "TEST", b"d": "DAMPING", b"x": "EXIT"}
 
-    def __init__(self, hold_timeout=0.15, lin_speed=MAX_LIN_SPEED, yaw_speed=MAX_YAW_SPEED):
+    def __init__(self, hold_timeout=0.15, x_speed=MAX_X_SPEED, y_speed=MAX_Y_SPEED, yaw_speed=MAX_YAW_SPEED):
         if not np.isfinite(hold_timeout) or hold_timeout <= 0.0:
             raise ValueError("--key-timeout 必须是正数")
         self.hold_timeout = float(hold_timeout)
         self.command = np.zeros(3, dtype=np.float32)
         # The SDK examples use +vy for left and -vy for right.
         self._steps = {
-            "UP": np.array([lin_speed, 0.0, 0.0], np.float32),
-            "DOWN": np.array([-lin_speed, 0.0, 0.0], np.float32),
-            "LEFT": np.array([0.0, lin_speed, 0.0], np.float32),
-            "RIGHT": np.array([0.0, -lin_speed, 0.0], np.float32),
+            "UP": np.array([x_speed, 0.0, 0.0], np.float32),
+            "DOWN": np.array([-x_speed, 0.0, 0.0], np.float32),
+            "LEFT": np.array([0.0, y_speed, 0.0], np.float32),
+            "RIGHT": np.array([0.0, -y_speed, 0.0], np.float32),
             # Yaw follows play.py's Se2Keyboard binding (Z/NUMPAD_7 = +omega_z
             # left turn, X/NUMPAD_9 = -omega_z right turn); X is already the
             # emergency exit here, so right turn moves to C.
@@ -319,9 +332,9 @@ class KeyboardCommand:
         tty.setcbreak(sys.stdin.fileno())
         print("状态：阻尼；按 s 进入 standup 过渡，完成后按 t 进入测试")
         print("d：放弃/停止测试，切换当前姿态阻尼并自然下趴；X/Ctrl+C 也是安全退出")
-        lin, yaw = self._steps["UP"][0], self._steps["TURN_L"][2]
+        x, y, yaw = self._steps["UP"][0], self._steps["LEFT"][1], self._steps["TURN_L"][2]
         print(
-            f"测试控制：↑/↓ 前进/后退，←/→ 左移/右移（±{lin:.2f} m/s）；"
+            f"测试控制：↑/↓ 前进/后退（±{x:.2f} m/s），←/→ 左移/右移（±{y:.2f} m/s）；"
             f"z/7 左转，c/9 右转（±{yaw:.2f} rad/s）；松开即归零"
         )
         return self
@@ -457,9 +470,9 @@ class WebControl:
     Command values are normalized [-1, 1] and scaled in the main loop.
     """
 
-    def __init__(self, port: int, lin_speed=MAX_LIN_SPEED, yaw_speed=MAX_YAW_SPEED):
+    def __init__(self, port: int, x_speed=MAX_X_SPEED, y_speed=MAX_Y_SPEED, yaw_speed=MAX_YAW_SPEED):
         self.command = np.zeros(3, dtype=np.float32)
-        self._scale = np.array([lin_speed, lin_speed, yaw_speed], np.float32)
+        self._scale = np.array([x_speed, y_speed, yaw_speed], np.float32)
         self.events: set = set()
         self.last_rx = 0.0
         self.info = {"state": "-", "command": [0.0, 0.0, 0.0], "clip": 0}
@@ -627,7 +640,8 @@ def main(args: argparse.Namespace):
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
     input_name, output_name = validate_session(session)
     print(f"ONNX 预检通过：[1,45] -> [1,12]，模型：{model_path}")
-    for name, value in (("--max-lin-speed", args.max_lin_speed), ("--max-yaw-speed", args.max_yaw_speed)):
+    for name, value in (("--max-x-speed", args.max_x_speed), ("--max-y-speed", args.max_y_speed),
+                        ("--max-yaw-speed", args.max_yaw_speed)):
         if not np.isfinite(value) or value <= 0.0 or value > 1.0:
             raise ValueError(f"{name} 必须在 (0, 1.0] 内（训练指令范围为 ±1.0）")
     if args.dry_run:
@@ -639,7 +653,7 @@ def main(args: argparse.Namespace):
 
     web = None
     if args.web_control:
-        web = WebControl(args.web_control, args.max_lin_speed, args.max_yaw_speed)
+        web = WebControl(args.web_control, args.max_x_speed, args.max_y_speed, args.max_yaw_speed)
         print(f"Web 控制页已开启: http://<本机IP>:{args.web_control} （Retroid/手机浏览器打开）")
 
     robot = sdk.LowLevel()
@@ -659,7 +673,7 @@ def main(args: argparse.Namespace):
         sender.start()
         print("当前状态：阻尼；按 s 开始 standup 过渡")
 
-        keyboard = KeyboardCommand(args.key_timeout, args.max_lin_speed, args.max_yaw_speed)
+        keyboard = KeyboardCommand(args.key_timeout, args.max_x_speed, args.max_y_speed, args.max_yaw_speed)
         with keyboard:
             last_action = np.zeros(12, dtype=np.float32)
             command = np.zeros(3, dtype=np.float32)
