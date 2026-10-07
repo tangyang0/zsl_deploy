@@ -120,7 +120,8 @@ def parse_args() -> argparse.Namespace:
         "--max-yaw-speed", type=float, default=MAX_YAW_SPEED, metavar="RADPS",
         help=f"转向角速度上限 rad/s（默认 {MAX_YAW_SPEED}，即训练 yaw 范围 ±0.8）",
     )
-    # Hidden compat for old launch files: fills whichever of x/y was not given.
+    # Hidden compat for old launch files: maps to forward speed only; lateral
+    # stays at the trained 0.3 limit.
     parser.add_argument("--max-lin-speed", type=float, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--kp", type=float, default=POLICY_KP, help="Policy position gain")
     parser.add_argument("--kd", type=float, default=POLICY_KD, help="Policy velocity gain")
@@ -140,11 +141,11 @@ def parse_args() -> argparse.Namespace:
     if args.max_x_speed is None:
         args.max_x_speed = args.max_lin_speed if args.max_lin_speed is not None else MAX_X_SPEED
     if args.max_y_speed is None:
-        args.max_y_speed = args.max_lin_speed if args.max_lin_speed is not None else MAX_Y_SPEED
-    for name, value in (("max-x-speed", args.max_x_speed), ("max-y-speed", args.max_y_speed),
-                        ("max-yaw-speed", args.max_yaw_speed)):
-        if not np.isfinite(value) or value <= 0.0:
-            raise ValueError(f"--{name} 必须是正的有限数")
+        args.max_y_speed = MAX_Y_SPEED
+    for name, value, limit in (("max-x-speed", args.max_x_speed, 1.0), ("max-y-speed", args.max_y_speed, 0.3),
+                               ("max-yaw-speed", args.max_yaw_speed, 0.8)):
+        if not np.isfinite(value) or value <= 0.0 or value > limit:
+            raise ValueError(f"--{name} 必须在 (0, {limit}] 内（超出训练命令范围）")
     return args
 
 
@@ -656,9 +657,6 @@ def main(args: argparse.Namespace):
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
     input_name, output_name = validate_session(session)
     print(f"ONNX 预检通过：[1,45] -> [1,12]，模型：{model_path}")
-    for name, value in (("--max-lin-speed", args.max_lin_speed), ("--max-yaw-speed", args.max_yaw_speed)):
-        if not np.isfinite(value) or value <= 0.0 or value > 1.0:
-            raise ValueError(f"{name} 必须在 (0, 1.0] 内（训练指令范围为 ±1.0）")
     if args.dry_run:
         print("dry-run 完成，未加载 SDK，未连接机器人，未发送电机命令")
         return
