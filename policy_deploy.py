@@ -54,10 +54,12 @@ SEND_DT = 0.002
 POLICY_DT = 0.020
 TRANSITION_DT = 2.0
 # Speed caps shared by the keyboard steps and the web-stick scaling; defaults
-# equal the training command limits (lin ±1.0 m/s, yaw ±1.0 rad/s). Tighten
-# per run with --max-lin-speed / --max-yaw-speed.
-MAX_LIN_SPEED = 1.0
-MAX_YAW_SPEED = 1.0
+# stay inside the trained command box (vx [−0.6, 1.0] m/s with 0.8 the highest
+# speed qualified in sim, vy ±0.3 m/s, yaw ±0.8 rad/s). Tighten per run with
+# --max-x-speed / --max-y-speed / --max-yaw-speed.
+MAX_X_SPEED = 0.8
+MAX_Y_SPEED = 0.3
+MAX_YAW_SPEED = 0.8
 DAMPING_KD = 3.0
 
 # RobotLab joint order: [FAR, FBL, RAR, RBL] = [FR, FL, RR, RL].
@@ -107,13 +109,19 @@ def parse_args() -> argparse.Namespace:
         help="方向键最后一次事件后的保持时间（秒，默认 0.15）",
     )
     parser.add_argument(
-        "--max-lin-speed", type=float, default=MAX_LIN_SPEED, metavar="MPS",
-        help=f"键盘挡位/网页摇杆的线速度上限 m/s（默认 {MAX_LIN_SPEED}，训练指令上限 1.0）",
+        "--max-x-speed", type=float, default=None, metavar="MPS",
+        help=f"前进/后退速度上限 m/s（默认 {MAX_X_SPEED}；训练 vx 范围 [−0.6, 1.0]，仿真验收最高 0.8）",
+    )
+    parser.add_argument(
+        "--max-y-speed", type=float, default=None, metavar="MPS",
+        help=f"左移/右移速度上限 m/s（默认 {MAX_Y_SPEED}，即训练 vy 范围 ±0.3，不建议调高）",
     )
     parser.add_argument(
         "--max-yaw-speed", type=float, default=MAX_YAW_SPEED, metavar="RADPS",
-        help=f"键盘挡位/网页摇杆的角速度上限 rad/s（默认 {MAX_YAW_SPEED}，训练指令上限 1.0）",
+        help=f"转向角速度上限 rad/s（默认 {MAX_YAW_SPEED}，即训练 yaw 范围 ±0.8）",
     )
+    # Hidden compat for old launch files: fills whichever of x/y was not given.
+    parser.add_argument("--max-lin-speed", type=float, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--kp", type=float, default=POLICY_KP, help="Policy position gain")
     parser.add_argument("--kd", type=float, default=POLICY_KD, help="Policy velocity gain")
     parser.add_argument("--transition-kp", type=float, default=TRANSITION_KP)
@@ -128,7 +136,16 @@ def parse_args() -> argparse.Namespace:
              "触摸双摇杆或浏览器 Gamepad API 实体摇杆，含 站起/测试/急停 按钮",
     )
     parser.add_argument("--dry-run", action="store_true", help="Validate and infer once without SDK/robot")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.max_x_speed is None:
+        args.max_x_speed = args.max_lin_speed if args.max_lin_speed is not None else MAX_X_SPEED
+    if args.max_y_speed is None:
+        args.max_y_speed = args.max_lin_speed if args.max_lin_speed is not None else MAX_Y_SPEED
+    for name, value in (("max-x-speed", args.max_x_speed), ("max-y-speed", args.max_y_speed),
+                        ("max-yaw-speed", args.max_yaw_speed)):
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(f"--{name} 必须是正的有限数")
+    return args
 
 
 def quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -256,7 +273,19 @@ def build_obs(q, qd, gyro, gravity, command, last_action) -> np.ndarray:
     parts = [np.asarray(x, dtype=np.float32).reshape(-1) for x in (q, qd, gyro, gravity, command, last_action)]
     if [x.size for x in parts] != [12, 12, 3, 3, 3, 12]:
         raise ValueError("observation 各段尺寸不符合 ZSL-1 policy")
-    obs = np.concatenate([parts[2] * 0.25, parts[3], parts[4], parts[0] - DEFAULT_Q, parts[1] * 0.05, parts[5]])
+    # Training clips every actor observation term to [-100, 100] BEFORE the
+    # term scale; deployment must mirror that pipeline. The clamp is inert in
+    # normal walking (|action| stays below ~2) but bounds the last-action
+    # feedback loop in abnormal states: without it the raw action diverges
+    # (measured |a| > 380 during falls; output goes non-finite in sim without it).
+    obs = np.concatenate([
+        np.clip(parts[2], -100.0, 100.0) * 0.25,
+        np.clip(parts[3], -100.0, 100.0),
+        np.clip(parts[4], -100.0, 100.0),
+        np.clip(parts[0] - DEFAULT_Q, -100.0, 100.0),
+        np.clip(parts[1], -100.0, 100.0) * 0.05,
+        np.clip(parts[5], -100.0, 100.0),
+    ])
     if not np.isfinite(obs).all():
         raise ValueError("observation 包含 NaN 或 Inf")
     return obs.astype(np.float32)
@@ -291,17 +320,17 @@ class KeyboardCommand:
     }
     _event_keys = {b"s": "STANDUP", b"t": "TEST", b"d": "DAMPING", b"x": "EXIT"}
 
-    def __init__(self, hold_timeout=0.15, lin_speed=MAX_LIN_SPEED, yaw_speed=MAX_YAW_SPEED):
+    def __init__(self, hold_timeout=0.15, x_speed=MAX_X_SPEED, y_speed=MAX_Y_SPEED, yaw_speed=MAX_YAW_SPEED):
         if not np.isfinite(hold_timeout) or hold_timeout <= 0.0:
             raise ValueError("--key-timeout 必须是正数")
         self.hold_timeout = float(hold_timeout)
         self.command = np.zeros(3, dtype=np.float32)
         # The SDK examples use +vy for left and -vy for right.
         self._steps = {
-            "UP": np.array([lin_speed, 0.0, 0.0], np.float32),
-            "DOWN": np.array([-lin_speed, 0.0, 0.0], np.float32),
-            "LEFT": np.array([0.0, lin_speed, 0.0], np.float32),
-            "RIGHT": np.array([0.0, -lin_speed, 0.0], np.float32),
+            "UP": np.array([x_speed, 0.0, 0.0], np.float32),
+            "DOWN": np.array([-x_speed, 0.0, 0.0], np.float32),
+            "LEFT": np.array([0.0, y_speed, 0.0], np.float32),
+            "RIGHT": np.array([0.0, -y_speed, 0.0], np.float32),
             # Yaw follows play.py's Se2Keyboard binding (Z/NUMPAD_7 = +omega_z
             # left turn, X/NUMPAD_9 = -omega_z right turn); X is already the
             # emergency exit here, so right turn moves to C.
@@ -319,9 +348,9 @@ class KeyboardCommand:
         tty.setcbreak(sys.stdin.fileno())
         print("状态：阻尼；按 s 进入 standup 过渡，完成后按 t 进入测试")
         print("d：放弃/停止测试，切换当前姿态阻尼并自然下趴；X/Ctrl+C 也是安全退出")
-        lin, yaw = self._steps["UP"][0], self._steps["TURN_L"][2]
+        x, y, yaw = self._steps["UP"][0], self._steps["LEFT"][1], self._steps["TURN_L"][2]
         print(
-            f"测试控制：↑/↓ 前进/后退，←/→ 左移/右移（±{lin:.2f} m/s）；"
+            f"测试控制：↑/↓ 前进/后退（±{x:.2f} m/s），←/→ 左移/右移（±{y:.2f} m/s）；"
             f"z/7 左转，c/9 右转（±{yaw:.2f} rad/s）；松开即归零"
         )
         return self
@@ -457,9 +486,9 @@ class WebControl:
     Command values are normalized [-1, 1] and scaled in the main loop.
     """
 
-    def __init__(self, port: int, lin_speed=MAX_LIN_SPEED, yaw_speed=MAX_YAW_SPEED):
+    def __init__(self, port: int, x_speed=MAX_X_SPEED, y_speed=MAX_Y_SPEED, yaw_speed=MAX_YAW_SPEED):
         self.command = np.zeros(3, dtype=np.float32)
-        self._scale = np.array([lin_speed, lin_speed, yaw_speed], np.float32)
+        self._scale = np.array([x_speed, y_speed, yaw_speed], np.float32)
         self.events: set = set()
         self.last_rx = 0.0
         self.info = {"state": "-", "command": [0.0, 0.0, 0.0], "clip": 0}
@@ -639,7 +668,7 @@ def main(args: argparse.Namespace):
 
     web = None
     if args.web_control:
-        web = WebControl(args.web_control, args.max_lin_speed, args.max_yaw_speed)
+        web = WebControl(args.web_control, args.max_x_speed, args.max_y_speed, args.max_yaw_speed)
         print(f"Web 控制页已开启: http://<本机IP>:{args.web_control} （Retroid/手机浏览器打开）")
 
     robot = sdk.LowLevel()
@@ -659,7 +688,7 @@ def main(args: argparse.Namespace):
         sender.start()
         print("当前状态：阻尼；按 s 开始 standup 过渡")
 
-        keyboard = KeyboardCommand(args.key_timeout, args.max_lin_speed, args.max_yaw_speed)
+        keyboard = KeyboardCommand(args.key_timeout, args.max_x_speed, args.max_y_speed, args.max_yaw_speed)
         with keyboard:
             last_action = np.zeros(12, dtype=np.float32)
             command = np.zeros(3, dtype=np.float32)
