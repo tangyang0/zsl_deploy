@@ -762,6 +762,8 @@ def main(args: argparse.Namespace):
                     if now - next_infer > POLICY_DT:
                         next_infer = now + POLICY_DT
                     if now - last_print > 1.0:
+                        print()
+                        print(f"time   : {time.strftime('%H:%M:%S', time.localtime(time.time()))}")
                         print(f"state  : {state}")
                         print(f"command: {np.round(command, 3)}")
                         print(f"action : {np.round(last_action, 3)}")
