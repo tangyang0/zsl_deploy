@@ -61,6 +61,12 @@ python policy_sim2sim.py --native-viewer
    python3 policy_deploy.py --web-control
    ```
 
+   使用 rough 策略并限速的完整示例：
+
+   ```bash
+   python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 --web-control --model models/rough.onnx --max-x-speed 0.6 --max-y-speed 0.3 --max-yaw-speed 0.8
+   ```
+
 **在推理机上部署**
 
 1. 推理机连狗的 WiFi AP，正常会拿到 `192.168.234.16`（出厂默认）。若 DHCP 分的不是这个地址，改 `LOCAL_IP` 常量或运行时加 `--local-ip <实际地址>`。

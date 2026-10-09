@@ -61,6 +61,12 @@ The two modes differ in only two things: which machine runs the script, and wher
    python3 policy_deploy.py --web-control
    ```
 
+   Full example with the rough policy and speed caps:
+
+   ```bash
+   python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 --web-control --model models/rough.onnx --max-x-speed 0.6 --max-y-speed 0.3 --max-yaw-speed 0.8
+   ```
+
 **Deploy on the inference machine**
 
 1. Connect the machine to the dog's WiFi AP; it should get `192.168.234.16` (the shipped default). If DHCP gave a different address, edit `LOCAL_IP` or pass `--local-ip <actual address>`.
