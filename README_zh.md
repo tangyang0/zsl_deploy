@@ -64,7 +64,7 @@ python policy_sim2sim.py --native-viewer
    使用 rough 策略并限速的完整示例：
 
    ```bash
-   python3 policy_deploy.py --local-ip 192.168.234.1 --dog-ip 192.168.234.1 --web-control --model models/rough.onnx --max-x-speed 0.6 --max-y-speed 0.3 --max-yaw-speed 0.8
+   python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.6 --max-y-speed 0.3 --max-yaw-speed 0.8
    ```
 
 **在推理机上部署**
@@ -87,7 +87,7 @@ python policy_sim2sim.py --native-viewer
 python policy_deploy.py --dry-run   # 仅验证模型：不加载 SDK、不连接机器人
 ```
 
-默认模型是 `models/smooth_ft.onnx`；用 `--model` 换成内置的 `models/config2.onnx`、`models/rough.onnx` 或任意导出的 `[1,45] -> [1,12]` 策略，接口在启动时校验，布局不符会直接报错。所有默认值都可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--max-lin-speed`、`--max-yaw-speed`、`--web-control` 覆盖。
+默认模型是 `models/smooth_ft.onnx`；用 `--model` 换成内置的 `models/config2.onnx`、`models/rough.onnx` 或任意导出的 `[1,45] -> [1,12]` 策略，接口在启动时校验，布局不符会直接报错。所有默认值都可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--max-x-speed`、`--max-y-speed`、`--max-yaw-speed`、`--web-control` 覆盖。
 
 #### 键盘控制
 
@@ -99,7 +99,7 @@ python policy_deploy.py
 
 测试中的键位：
 
-- 方向键（或小键盘 `8/2/4/6`）：前进/后退、左移/右移，速度 `±MAX_LIN_SPEED`（默认 `1.0 m/s`，即训练指令上限；可用 `--max-lin-speed` 收紧）。
+- 方向键（或小键盘 `8/2/4/6`）：前进/后退 `±MAX_X_SPEED`、左移/右移 `±MAX_Y_SPEED`（默认 `1.0 m/s`，即训练指令上限；可用 `--max-x-speed` / `--max-y-speed` 收紧——训练时 vy 范围仅 ±0.3 m/s）。
 - `z`（或小键盘 `7`）：`+MAX_YAW_SPEED` 左转（默认 `1.0 rad/s`，可用 `--max-yaw-speed` 收紧）；`c`（或小键盘 `9`）：右转。play.py 的 X 键位此处未用，因为 `X` 是安全退出。
 - 生效中的方向会叠加，但 POSIX 终端只自动重复最后按下的那个键：同时按住两个方向键时，`--key-timeout`（默认 `0.15 s`）过后只剩最后一个。需要组合时交替点按，或一次只按一个。
 - `空格` 立即清零；松开按键同样在超时后归零。
@@ -111,7 +111,7 @@ python policy_deploy.py
 python policy_deploy.py --web-control        # 换端口: --web-control 9090
 ```
 
-开启内置 HTTP 服务（默认端口 8080），浏览器打开即得单页触摸手柄：左侧虚拟摇杆控制 vx/vy，右摇杆 X 轴控制转向；在 Retroid Pocket 4 这类安卓掌机上，浏览器 Gamepad API 会直接读取**实体摇杆**。页面上 `站起 (s)`、`测试 (t)`、`急停 (d)` 按钮驱动同一套状态机。指令为归一化摇杆值乘 `MAX_LIN_SPEED`/`MAX_YAW_SPEED`（带死区；`--max-lin-speed`/`--max-yaw-speed` 对键盘挡位和网页摇杆同时生效）；页面停止发送超过 0.3 秒即回落到键盘指令源。网页**故意**不提供退出功能：关闭浏览器或断 WiFi 只会令指令归零，绝不会杀掉部署进程。原厂 App 无法复用：它独占 SDK 通道，你的策略运行时 App 根本没有链路。
+开启内置 HTTP 服务（默认端口 8080），浏览器打开即得单页触摸手柄：左侧虚拟摇杆控制 vx/vy，右摇杆 X 轴控制转向；在 Retroid Pocket 4 这类安卓掌机上，浏览器 Gamepad API 会直接读取**实体摇杆**。页面上 `站起 (s)`、`测试 (t)`、`急停 (d)` 按钮驱动同一套状态机。指令为归一化摇杆值乘 `MAX_X_SPEED`/`MAX_Y_SPEED`/`MAX_YAW_SPEED`（带死区；`--max-x-speed`/`--max-y-speed`/`--max-yaw-speed` 对键盘挡位和网页摇杆同时生效）；页面停止发送超过 0.3 秒即回落到键盘指令源。网页**故意**不提供退出功能：关闭浏览器或断 WiFi 只会令指令归零，绝不会杀掉部署进程。原厂 App 无法复用：它独占 SDK 通道，你的策略运行时 App 根本没有链路。
 
 ### 机制与安全
 
