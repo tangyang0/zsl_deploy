@@ -602,9 +602,9 @@ window.addEventListener('gamepaddisconnected', ()=>{gp=null;document.getElementB
 function axes(){
   if(gp){
     const g = navigator.getGamepads()[gp.index];
-    if(g) return {vx:dz(-g.axes[1]), vy:dz(g.axes[0]), wz:dz(-g.axes[2])};
+    if(g) return {vx:dz(-g.axes[1]), vy:dz(-g.axes[0]), wz:dz(-g.axes[2])};
   }
-  return {vx:dz(-L.y), vy:dz(L.x), wz:dz(R.x)};
+  return {vx:dz(-L.y), vy:dz(-L.x), wz:dz(R.x)};
 }
 function sendEvent(ev){fetch('/event',{method:'POST',body:JSON.stringify({event:ev})});}
 setInterval(()=>{
