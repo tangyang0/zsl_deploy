@@ -64,7 +64,7 @@ python policy_sim2sim.py --native-viewer
    使用 rough 策略并限速的完整示例：
 
    ```bash
-   python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.6 --max-y-speed 0.3 --max-yaw-speed 0.8
+   python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.4 --max-y-speed 0.2 --max-yaw-speed 0.8
    ```
 
 **在推理机上部署**

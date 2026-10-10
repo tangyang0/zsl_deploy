@@ -64,7 +64,7 @@ The two modes differ in only two things: which machine runs the script, and wher
    Full example with the rough policy and speed caps:
 
    ```bash
-   python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.6 --max-y-speed 0.3 --max-yaw-speed 0.8
+   python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.4 --max-y-speed 0.2 --max-yaw-speed 0.8
    ```
 
 **Deploy on the inference machine**
