@@ -475,7 +475,8 @@ class WebControl:
         self._scale = np.array([x_speed, y_speed, yaw_speed], np.float32)
         self.events: set = set()
         self.last_rx = 0.0
-        self.info = {"state": "-", "command": [0.0, 0.0, 0.0], "clip": 0}
+        self.info = {"state": "-", "command": [0.0, 0.0, 0.0], "clip": 0,
+                     "max": [x_speed, y_speed, yaw_speed]}
         self.lock = threading.Lock()
         ctrl = self
 
@@ -567,7 +568,7 @@ WEB_PAGE = """<!doctype html>
   .stick{position:absolute;left:50%;top:50%;width:34%;height:34%;border-radius:50%;
          background:#5a86ff;transform:translate(-50%,-50%);opacity:.85}
 </style></head><body>
-<div id="top">状态: <b id="st">-</b> &nbsp;|&nbsp; 指令: <span id="cm">0.00 0.00 0.00</span>
+<div id="top">状态: <b id="st">-</b> &nbsp;|&nbsp; 指令(m/s, rad/s): <span id="cm">0.00 0.00 0.00</span>
  &nbsp;|&nbsp; <span id="src">触摸</span></div>
 <div id="btns">
   <button id="b_s" onclick="sendEvent('STANDUP')">站起 (s)</button>
@@ -607,14 +608,17 @@ function axes(){
   return {vx:dz(-L.y), vy:dz(-L.x), wz:dz(R.x)};
 }
 function sendEvent(ev){fetch('/event',{method:'POST',body:JSON.stringify({event:ev})});}
+// caps: 服务器下发的速度上限，用于把摇杆归一化值换算成实际 m/s、rad/s
+let caps=[1,1,1];
 setInterval(()=>{
   const a = axes();
   fetch('/cmd',{method:'POST',body:JSON.stringify(a)});
   document.getElementById('cm').textContent =
-    a.vx.toFixed(2)+' '+a.vy.toFixed(2)+' '+a.wz.toFixed(2);
+    (a.vx*caps[0]).toFixed(2)+' '+(a.vy*caps[1]).toFixed(2)+' '+(a.wz*caps[2]).toFixed(2);
 },50);
 setInterval(async()=>{
   try{ const s = await (await fetch('/state')).json();
+       if(s.max) caps=s.max;
        document.getElementById('st').textContent = s.state + (s.clip ? ' (限位'+s.clip+')' : '');
   }catch(e){}
 },500);
