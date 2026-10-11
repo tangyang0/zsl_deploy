@@ -134,6 +134,11 @@ def parse_args() -> argparse.Namespace:
         help="开启内置 Web 控制页（默认端口 8080）：Retroid/手机浏览器打开，"
              "触摸双摇杆或浏览器 Gamepad API 实体摇杆，含 站起/测试/急停 按钮",
     )
+    parser.add_argument(
+        "--pin-cores", default="5,6" if _ARCH == "aarch64" else "", metavar="CORES",
+        help="绑定运行核心（默认：狗的 aarch64 主控自动绑 5,6，其他机器不绑定；核 7 为运控 "
+             "mc_ctrl/spline 专用，0-4 挤着感知与视频编码；传 none 可关闭绑定）",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Validate and infer once without SDK/robot")
     args = parser.parse_args()
     # Hidden --max-lin-speed (old launch files) fills unspecified x/y caps.
@@ -627,6 +632,15 @@ setInterval(async()=>{
 
 
 def main(args: argparse.Namespace):
+    if args.pin_cores and args.pin_cores.lower() not in ("none", "off"):
+        try:
+            cores = sorted({int(c) for c in args.pin_cores.split(",") if c.strip()})
+        except ValueError:
+            raise ValueError("--pin-cores 格式应为逗号分隔的核心编号，如 5,6")
+        # Pin before any worker thread exists so the 50 Hz loop, the 500 Hz
+        # sender and the web server all inherit the same affinity.
+        os.sched_setaffinity(0, cores)
+        print(f"已绑定核心: {sorted(os.sched_getaffinity(0))}")
     print("实验版本：策略动作无限幅；关节目标 = 默认姿态 + ACTION_SCALE × 原始动作，并按 SDK 关节限位裁剪")
     model_path = Path(args.model).expanduser().resolve()
     if not model_path.is_file():
@@ -684,6 +698,7 @@ def main(args: argparse.Namespace):
             q_des = DEFAULT_Q.copy()
             clip_steps = 0
             next_infer = time.monotonic()
+            last_infer_time = None
             last_check = next_infer
             last_print = 0.0
             while True:
@@ -746,11 +761,17 @@ def main(args: argparse.Namespace):
                     check_live(robot)
                     last_check = now
                 if state == STATE_TEST and now >= next_infer:
+                    if last_infer_time is not None and now - last_infer_time > 0.030:
+                        print(f"警告: 控制环间隔 {(now - last_infer_time) * 1000:.0f} ms 超过 30 ms"
+                              f"（{1.0 / POLICY_DT:.0f} Hz 控制环丢拍，主循环被阻塞/抢占）")
+                    last_infer_time = now
+                    _t_read = time.perf_counter()
                     q, qd, gyro, gravity = read_q_qd_imu(robot)
+                    _t_obs = time.perf_counter()
                     obs = build_obs(q, qd, gyro, gravity, command, last_action)
-                    t_infer = time.perf_counter()
+                    _t_inf = time.perf_counter()
                     raw_action = np.asarray(session.run([output_name], {input_name: obs[None, :]})[0][0], np.float32)
-                    infer_s = time.perf_counter() - t_infer
+                    infer_s = time.perf_counter() - _t_inf
                     if infer_s > POLICY_DT:
                         print(f"警告: 推理耗时 {infer_s * 1000:.1f} ms 超过控制周期 {POLICY_DT * 1000:.0f} ms"
                               f"（{1.0 / POLICY_DT:.0f} Hz 控制频率不达标）")
@@ -762,6 +783,11 @@ def main(args: argparse.Namespace):
                     if not np.array_equal(q_des, q_raw):
                         clip_steps += 1
                     sender.set_target(q_des)
+                    _t_end = time.perf_counter()
+                    for _lbl, _a, _b in (("状态读取", _t_read, _t_obs), ("观测组装", _t_obs, _t_inf),
+                                          ("推理+裁剪+下发", _t_inf, _t_end)):
+                        if _b - _a > 0.05:
+                            print(f"慢段: {_lbl} {(_b - _a) * 1000:.0f} ms")
                     next_infer += POLICY_DT
                     if now - next_infer > POLICY_DT:
                         next_infer = now + POLICY_DT

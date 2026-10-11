@@ -67,6 +67,8 @@ The two modes differ in only two things: which machine runs the script, and wher
    python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.4 --max-y-speed 0.2 --max-yaw-speed 0.8
    ```
 
+   On the dog, cores 5,6 are pinned automatically by default (core 7 is reserved for the motion control mc_ctrl/spline, cores 0-4 are usually busy with perception and video encoding), keeping the 50 Hz loop and the 500 Hz sender off contended cores; other machines default to no pinning — override with `--pin-cores` or pass `none` to disable.
+
 **Deploy on the inference machine**
 
 1. Connect the machine to the dog's WiFi AP; it should get `192.168.234.16` (the shipped default). If DHCP gave a different address, edit `LOCAL_IP` or pass `--local-ip <actual address>`.
@@ -87,7 +89,7 @@ The two modes differ in only two things: which machine runs the script, and wher
 python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
 ```
 
-The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-x-speed`, `--max-y-speed`, `--max-yaw-speed`, and `--web-control`.
+The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-x-speed`, `--max-y-speed`, `--max-yaw-speed`, `--web-control`, and `--pin-cores`.
 
 #### Keyboard control
 

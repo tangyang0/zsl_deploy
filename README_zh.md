@@ -67,6 +67,8 @@ python policy_sim2sim.py --native-viewer
    python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.4 --max-y-speed 0.2 --max-yaw-speed 0.8
    ```
 
+   狗上默认自动绑定核心 5,6（核 7 是运控 mc_ctrl/spline 专用，0-4 常被感知与视频编码占用），50 Hz 主循环与 500 Hz 发送线程不再漂移抢核；推理机等非狗环境默认不绑定，可用 `--pin-cores` 指定或传 `none` 关闭。
+
 **在推理机上部署**
 
 1. 推理机连狗的 WiFi AP，正常会拿到 `192.168.234.16`（出厂默认）。若 DHCP 分的不是这个地址，改 `LOCAL_IP` 常量或运行时加 `--local-ip <实际地址>`。
@@ -87,7 +89,7 @@ python policy_sim2sim.py --native-viewer
 python policy_deploy.py --dry-run   # 仅验证模型：不加载 SDK、不连接机器人
 ```
 
-默认模型是 `models/smooth_ft.onnx`；用 `--model` 换成内置的 `models/config2.onnx`、`models/rough.onnx` 或任意导出的 `[1,45] -> [1,12]` 策略，接口在启动时校验，布局不符会直接报错。所有默认值都可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--max-x-speed`、`--max-y-speed`、`--max-yaw-speed`、`--web-control` 覆盖。
+默认模型是 `models/smooth_ft.onnx`；用 `--model` 换成内置的 `models/config2.onnx`、`models/rough.onnx` 或任意导出的 `[1,45] -> [1,12]` 策略，接口在启动时校验，布局不符会直接报错。所有默认值都可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--max-x-speed`、`--max-y-speed`、`--max-yaw-speed`、`--web-control`、`--pin-cores` 覆盖。
 
 #### 键盘控制
 
