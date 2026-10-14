@@ -1,10 +1,10 @@
 # ZSL-1 策略部署
 
-把 RobotLab 导出的速度策略 ONNX（平地或粗糙地形，任意 `[1,45] -> [1,12]` 接口）经 ZSL-1 旧版 LowLevel Python SDK 落到真机，分两个阶段、两个工具：`policy_sim2sim.py` 先在 MuJoCo 里回放验证（sim2sim），`policy_deploy.py` 再上真机运行（sim2real）。两者共用仓库内置的 `sdk/`（双架构）与 `models/`（默认 `smooth_ft`，含 `config2` 和粗糙地形策略）。
+把 RobotLab 导出的速度策略 ONNX（平地或粗糙地形，任意 `[1,45] -> [1,12]` 接口）经 ZSL-1 旧版 LowLevel Python SDK 落到真机，分两个阶段、两个工具：`policy_sim2sim.py` 先在 MuJoCo 里回放验证（sim2sim），`policy_deploy.py` 再上真机运行（sim2real）。两者共用子模块引用的 `sdk/`（genisom_l1_sdk_old，双架构）与内置的 `models/`（默认 `smooth_ft`，含粗糙地形策略）。
 
 ## 环境搭建
 
-SDK 的 Python 绑定按 CPython 3.10 编译（`mc_sdk_zsl_1_py.cpython-310-*`），因此环境必须是 Python 3.10。部署只需 `numpy` 和 `onnxruntime` 两个 pip 依赖；下面的 MuJoCo 回放额外需要 `pip install mujoco pygame-ce`。其余全部内置在仓库里：两种架构的 SDK 在 `sdk/` 下（按机器架构自动选择——x86_64 推理机或狗的 aarch64 主控），ONNX 策略在 `models/` 下，不依赖任何外部文件。
+SDK 的 Python 绑定按 CPython 3.10 编译（`mc_sdk_zsl_1_py.cpython-310-*`），因此环境必须是 Python 3.10。部署只需 `numpy` 和 `onnxruntime` 两个 pip 依赖；下面的 MuJoCo 回放额外需要 `pip install mujoco pygame-ce`。ONNX 策略内置在 `models/` 下。SDK 以 git 子模块引用（`sdk/` → [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)）：克隆时加 `--recurse-submodules`，或克隆后执行 `git submodule update --init`；脚本按机器架构自动选用 `sdk/lib/zsl-1/<架构>`。
 
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
@@ -38,7 +38,7 @@ python policy_sim2sim.py --native-viewer
 
 #### SDK 来源与前置要求
 
-内置 `sdk/` 的二进制来自厂商官方 SDK 仓库 [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)（在线文档：[zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)），采用 **BSD 3-Clause 协议**（Copyright (c) 2025, ZsiBot）。本仓库只按架构拷入了每侧两个 `.so` 文件，并按其二进制再分发条款在 `sdk/LICENSE` 保留了协议全文。
+内置 `sdk/` 的二进制来自厂商官方 SDK 仓库 [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)（在线文档：[zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)），采用 **BSD 3-Clause 协议**（Copyright (c) 2025, ZsiBot）。上游仓库以 `sdk/` 子模块整体引用（钉在本机验证过的提交），协议全文随子模块自带。
 
 部署前须先满足 SDK 仓库自身的要求：
 
@@ -89,7 +89,7 @@ python policy_sim2sim.py --native-viewer
 python policy_deploy.py --dry-run   # 仅验证模型：不加载 SDK、不连接机器人
 ```
 
-默认模型是 `models/smooth_ft.onnx`；用 `--model` 换成内置的 `models/config2.onnx`、`models/rough.onnx` 或任意导出的 `[1,45] -> [1,12]` 策略，接口在启动时校验，布局不符会直接报错。所有默认值都可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--max-x-speed`、`--max-y-speed`、`--max-yaw-speed`、`--web-control`、`--pin-cores` 覆盖。
+默认模型是 `models/smooth_ft.onnx`；用 `--model` 换成内置的 `models/rough.onnx` 或任意导出的 `[1,45] -> [1,12]` 策略，接口在启动时校验，布局不符会直接报错。所有默认值都可用 `--model`、`--sdk-lib`、`--local-ip`、`--dog-ip`、`--port`、`--kp`、`--kd`、`--key-timeout`、`--max-x-speed`、`--max-y-speed`、`--max-yaw-speed`、`--web-control`、`--pin-cores` 覆盖。
 
 #### 键盘控制
 

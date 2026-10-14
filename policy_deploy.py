@@ -42,7 +42,9 @@ _REPO_DIR = Path(__file__).resolve().parent
 _ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(
     os.uname().machine, os.uname().machine
 )
-DEFAULT_SDK_LIB = str(_REPO_DIR / "sdk" / _ARCH)
+# The SDK lives in the `sdk/` git submodule (upstream genisom_l1_sdk_old),
+# whose layout is lib/zsl-1/<arch>; the arch is picked from the machine.
+DEFAULT_SDK_LIB = str(_REPO_DIR / "sdk" / "lib" / "zsl-1" / _ARCH)
 DEFAULT_MODEL = str(_REPO_DIR / "models" / "smooth_ft.onnx")
 # Default network identity is the ONBOARD mode: the script runs on the dog's
 # main computer and uses the dog's own ap0 address for both ends. To deploy
@@ -666,6 +668,12 @@ def main(args: argparse.Namespace):
         print("dry-run 完成，未加载 SDK，未连接机器人，未发送电机命令")
         return
 
+    if not any(Path(args.sdk_lib).glob("mc_sdk_zsl_1_py*.so")):
+        raise FileNotFoundError(
+            f"SDK 绑定不存在: {args.sdk_lib}\n"
+            "sdk/ 是 git 子模块，未初始化时先执行: git submodule update --init\n"
+            "或自行克隆 genisom_l1_sdk_old 后用 --sdk-lib 指向其 lib/zsl-1/<架构> 目录"
+        )
     sys.path.insert(0, args.sdk_lib)
     import mc_sdk_zsl_1_py as sdk
 

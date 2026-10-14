@@ -1,10 +1,10 @@
 # ZSL-1 policy deployment
 
-Deployment and sim2sim playback of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK. Two tools, two stages: `policy_sim2sim.py` replays the policy in MuJoCo first (sim2sim), `policy_deploy.py` then runs it on the robot (sim2real). Both share the bundled `sdk/` (both architectures) and `models/` (smooth_ft by default, plus config2 and the rough-terrain policy).
+Deployment and sim2sim playback of exported RobotLab velocity policies (flat or rough terrain, any `[1,45] -> [1,12]` ONNX) through the legacy ZSL-1 LowLevel Python SDK. Two tools, two stages: `policy_sim2sim.py` replays the policy in MuJoCo first (sim2sim), `policy_deploy.py` then runs it on the robot (sim2real). Both share the `sdk/` submodule (genisom_l1_sdk_old, both architectures) and the bundled `models/` (smooth_ft by default, plus the rough-terrain policy).
 
 ## Environment setup
 
-The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. Everything else is bundled in this repo: both SDK builds live under `sdk/` (selected automatically by machine architecture — x86_64 host or the dog's aarch64 main computer), and the ONNX policies live under `models/`. No external files are needed.
+The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. The ONNX policies are bundled under `models/`. The SDK is referenced as a git submodule (`sdk/` → [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)): clone with `--recurse-submodules`, or run `git submodule update --init` in an existing clone; the right build (`sdk/lib/zsl-1/<arch>`) is picked from the machine architecture.
 
 ```bash
 conda create -n zsl_sdk_py310 python=3.10 -y
@@ -38,7 +38,7 @@ Runs the viewer alone: its key callback has no release/repeat events, so a press
 
 #### SDK source and prerequisites
 
-The bundled `sdk/` binaries come from the vendor's official SDK repository [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git) (online docs: [zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)), distributed under the **BSD 3-Clause License** (Copyright (c) 2025, ZsiBot). Only the two `.so` files per architecture were copied into this repo; the full license text is preserved at `sdk/LICENSE` as its binary-redistribution clause requires.
+The bundled `sdk/` binaries come from the vendor's official SDK repository [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git) (online docs: [zsibot.github.io/genisom_l1_sdk_old](https://zsibot.github.io/genisom_l1_sdk_old/)), distributed under the **BSD 3-Clause License** (Copyright (c) 2025, ZsiBot). The upstream repo is referenced whole as the `sdk/` submodule (pinned to the commit verified on this unit), so its LICENSE ships along, satisfying the binary-redistribution clause.
 
 The SDK repo's own requirements must be satisfied before deployment:
 
@@ -89,7 +89,7 @@ The two modes differ in only two things: which machine runs the script, and wher
 python policy_deploy.py --dry-run   # validate model only: no SDK, no robot
 ```
 
-The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/config2.onnx`, `models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-x-speed`, `--max-y-speed`, `--max-yaw-speed`, `--web-control`, and `--pin-cores`.
+The default model is `models/smooth_ft.onnx`. Pass `--model` to load another bundled policy (`models/rough.onnx`) or any exported `[1,45] -> [1,12]` policy; the interface is checked at startup, so a policy with a different layout fails loudly. All defaults can be overridden with `--model`, `--sdk-lib`, `--local-ip`, `--dog-ip`, `--port`, `--kp`, `--kd`, `--key-timeout`, `--max-x-speed`, `--max-y-speed`, `--max-yaw-speed`, `--web-control`, and `--pin-cores`.
 
 #### Keyboard control
 
