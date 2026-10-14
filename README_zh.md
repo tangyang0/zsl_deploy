@@ -6,8 +6,6 @@
 
 ```bash
 git clone --recurse-submodules https://github.com/tangyang0/zsl_deploy.git
-# 已经克隆过的旧副本补齐子模块：
-git submodule update --init
 ```
 
 SDK 的 Python 绑定按 CPython 3.10 编译（`mc_sdk_zsl_1_py.cpython-310-*`），因此环境必须是 Python 3.10。部署只需 `numpy` 和 `onnxruntime` 两个 pip 依赖；下面的 MuJoCo 回放额外需要 `pip install mujoco pygame-ce`。ONNX 策略内置在 `models/` 下。SDK 以 git 子模块引用（`sdk/` → [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)）：克隆时加 `--recurse-submodules`，或克隆后执行 `git submodule update --init`；脚本按机器架构自动选用 `sdk/lib/zsl-1/<架构>`。

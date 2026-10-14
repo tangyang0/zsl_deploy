@@ -6,8 +6,6 @@ Deployment and sim2sim playback of exported RobotLab velocity policies (flat or 
 
 ```bash
 git clone --recurse-submodules https://github.com/tangyang0/zsl_deploy.git
-# existing clones fetch the submodule with:
-git submodule update --init
 ```
 
 The SDK Python binding is built for CPython 3.10 (`mc_sdk_zsl_1_py.cpython-310-*`), so the environment must be Python 3.10. `numpy` and `onnxruntime` are the only pip dependencies for deployment; the MuJoCo playback below additionally needs `pip install mujoco pygame-ce`. The ONNX policies are bundled under `models/`. The SDK is referenced as a git submodule (`sdk/` → [zsibot/genisom_l1_sdk_old](https://github.com/zsibot/genisom_l1_sdk_old.git)): clone with `--recurse-submodules`, or run `git submodule update --init` in an existing clone; the right build (`sdk/lib/zsl-1/<arch>`) is picked from the machine architecture.
