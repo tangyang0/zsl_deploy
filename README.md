@@ -15,22 +15,22 @@ pip install mujoco pygame-ce       # optional: sim2sim playback
 
 ## Sim2sim: MuJoCo playback
 
-`policy_sim2sim.py` replays the same ONNX policy in MuJoCo before touching the robot. It patches the training URDF on the fly (floating base, absolute mesh paths, and an injected floor because the URDF world has no ground), then runs the identical pipeline as deployment: the observation/action constants are imported from `policy_deploy.py`, physics runs at the training rate of 200 Hz with the policy at 50 Hz, PD gains `kp=20`/`kd=0.7` and the 28 Nm effort limit match training, and joint targets use the same SDK-window clamp with clip counting. The base-frame angular velocity comes from free-joint `qvel[3:6]` (verified against quaternion finite differences).
+`policy_sim2sim.py` replays the same ONNX policy in MuJoCo before touching the robot. It patches the training URDF on the fly (floating base, absolute mesh paths, and an injected floor because the URDF world has no ground), then runs the identical pipeline as deployment: the observation/action constants are imported from `policy_deploy.py`, physics runs at the training rate of 200 Hz with the policy at 50 Hz, PD gains `kp=20`/`kd=0.7` and the 28 Nm effort limit match training, and joint targets use the same SDK-window clamp with clip counting. The base-frame angular velocity is free-joint `qvel[3:6]`.
 
-The floor is a light plane with dark grid strips every meter (visual-only geoms, no physics) so walking is visible. It deliberately avoids textures: on this machine procedural textures rendered offscreen but were silently dropped by the GLFW viewer's context (verified by capturing the actual window), while plain geometry always renders.
+The floor is a light plane with dark grid lines every meter (visual-only geoms, no physics) for judging displacement; no textures — they get dropped by the viewer's GL context.
 
 ```bash
 python policy_sim2sim.py --headless 500 --command 0.5 0 0   # no-viewer smoke test
 python policy_sim2sim.py                                    # interactive: 3D viewer + control panel
 ```
 
-Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's exact keyboard semantics: the command is the sum over keys held in the panel — hold to move, release to stop, combinations work, and the command starts at zero (the robot stands until you press). Binding matches Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset the robot. The camera lookat follows the robot each frame (mouse orbit/zoom still work). Falls (base below `0.2 m`) auto-reset. The pygame panel exists because the viewer's key callback has no release events; it is a plain software window, avoiding the offscreen EGL/GLX contexts that failed on some sessions of this machine.
+Interactive mode (default) opens mujoco's own 3D viewer plus a small pygame control panel with play.py's keyboard semantics: the command is the sum over keys held, hold to move, release to stop, combinations allowed, starting at zero. Binding as Se2Keyboard: arrows or numpad/main-row `8/2/4/6` for linear velocity, `z`/`7` left yaw, `x`/`9` right yaw, `l`/`Space` to zero, `r` to reset. The camera lookat follows the robot (mouse orbit/zoom work); falls auto-reset. Keyboard input goes through the pygame panel because the viewer's key callback has no release events.
 
 ```bash
 python policy_sim2sim.py --native-viewer
 ```
 
-Runs the viewer alone: its key callback has no release/repeat events (verified by synthetic key injection and on the real keyboard), so a pressed direction stays active until cleared, and the latest key replaces the previous command — press once to keep moving, press another key to switch direction, `l`/`Space` to stop. The camera follows the robot in this mode too. Use sim2sim to sanity-check transfer before hardware: e.g. the `smooth_ft` policy tracks `0.5 m/s` at `0.45 m/s` here, while `config2` only accepts low speeds in MuJoCo (`0.25 m/s` tracks, `0.5` falls) despite walking in Isaac.
+Runs the viewer alone: its key callback has no release/repeat events, so a press stays active until another key replaces it; `l`/`Space` stops. The camera follows here too. Policies can behave very differently in MuJoCo than in Isaac (`config2` walks in Isaac but falls here at `0.5 m/s`) — run sim2sim before hardware.
 
 ## Sim2real: robot deployment
 
@@ -42,7 +42,7 @@ The bundled `sdk/` binaries come from the vendor's official SDK repository [zsib
 
 The SDK repo's own requirements must be satisfied before deployment:
 
-- **Version match**: the SDK protocol differs across firmware versions. Check the dog's version with `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` and use the matching SDK release — this repo bundles the one verified on our unit; for anything else go to the upstream repo.
+- **Version match**: the SDK protocol differs across firmware versions. Check the dog's version with `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` and use the matching SDK release — this repo bundles the one verified on this unit; for anything else go to the upstream repo.
 - The vendor recommends running the SDK program on a compute board **wired to the robot** (ethernet) rather than WiFi.
 - The dog-side `/opt/export/config/sdk_config.yaml` `target_ip` must point at the controlling machine, and the dog must be **rebooted** after changing it.
 - Only one SDK client may connect at a time — the vendor remote/app is locked out while this script runs, and vice versa.
@@ -54,7 +54,7 @@ The two modes differ in only two things: which machine runs the script, and wher
 
 **Deploy on the dog (onboard mode, default)**
 
-1. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.1"` (the dog's own ap0 address, matching the factory backup), then reboot the dog.
+1. On the dog, set `/opt/export/config/sdk_config.yaml` to `target_ip: "192.168.234.1"` (the dog's own ap0 address), then reboot the dog.
 2. Over SSH, just run:
 
    ```bash
@@ -67,7 +67,7 @@ The two modes differ in only two things: which machine runs the script, and wher
    python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.4 --max-y-speed 0.2 --max-yaw-speed 0.8
    ```
 
-   On the dog, cores 5,6 are pinned automatically by default (core 7 is reserved for the motion control mc_ctrl/spline, cores 0-4 are usually busy with perception and video encoding), keeping the 50 Hz loop and the 500 Hz sender off contended cores; other machines default to no pinning — override with `--pin-cores` or pass `none` to disable.
+   On the dog, cores 5,6 are pinned by default (core 7 is reserved for motion control, 0-4 are usually busy with perception/encoding); other machines default to no pinning — override with `--pin-cores`, disable with `none`.
 
 **Deploy on the inference machine**
 
@@ -102,7 +102,7 @@ The program keeps the startup pose on the ground and starts **low-level damping*
 While testing:
 
 - Arrow keys (or numpad `8/2/4/6`): forward/backward at `±MAX_X_SPEED` and left/right at `±MAX_Y_SPEED` (defaults `1.0 m/s`, the training command limit; tighten with `--max-x-speed` / `--max-y-speed` — the trained vy range is only ±0.3 m/s).
-- `z` (or numpad `7`): turn left at `+MAX_YAW_SPEED` (default `1.0 rad/s`; tighten with `--max-yaw-speed`); `c` (or numpad `9`): turn right. Play.py's X binding is not used here because `X` is the safe exit.
+- `z` (or numpad `7`): turn left at `+MAX_YAW_SPEED` (default `1.0 rad/s`; tighten with `--max-yaw-speed`); `c` (or numpad `9`): turn right. play.py's X is reserved for the safe exit here.
 - Active directions sum, but a POSIX terminal only auto-repeats the most recently pressed key: holding two direction keys keeps only the last one once `--key-timeout` (default `0.15 s`) expires. Combine directions by tapping alternately, or press one at a time.
 - `Space` clears the command immediately; releasing a key zeroes it after the same timeout.
 - The hidden `--keyboard` and `--command` options remain accepted for old launch files but are ignored.
@@ -113,13 +113,13 @@ While testing:
 python policy_deploy.py --web-control        # or: --web-control 9090 for another port
 ```
 
-This starts a built-in HTTP server (default port 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `MAX_X_SPEED`/`MAX_Y_SPEED`/`MAX_YAW_SPEED` with a dead zone (`--max-x-speed`/`--max-y-speed`/`--max-yaw-speed` apply to the keyboard and the web sticks alike); if the page stops sending for 0.3 s the command falls back to the keyboard source. The page cannot send `EXIT` on purpose: closing the browser or losing WiFi only zeroes the command and never kills the deployment. The vendor app cannot be reused for this: it talks to the SDK channel exclusively, so while your policy runs the app has no link at all.
+This starts a built-in HTTP server (default port 8080) serving a single touch gamepad page: two virtual joysticks (left = vx/vy, right X = yaw), and — on Android handhelds like the bundled Retroid Pocket 4 — the browser Gamepad API reads the physical sticks directly. Buttons drive the same state machine: `站起 (s)`, `测试 (t)`, `急停 (d)`. Commands are normalized sticks scaled by `MAX_X_SPEED`/`MAX_Y_SPEED`/`MAX_YAW_SPEED` with a dead zone (`--max-x-speed`/`--max-y-speed`/`--max-yaw-speed` apply to the keyboard and the web sticks alike); if the page stops sending for 0.3 s the command falls back to the keyboard source. The page has no exit function: closing it or losing WiFi only zeroes the command. The vendor app cannot control this deployment — it holds the SDK channel exclusively.
 
 ### Mechanism and safety
 
 #### Action handling and joint limits
 
-Experimental variant: raw policy actions are **not** amplitude-clamped. Joint targets are `default pose + ACTION_SCALE * raw action`, then clamped to the hard windows enforced by the SDK's `sendMotorCmd` (abad `±0.48`, hip `-1.15~2.97`, knee `-2.9~-0.65` rad) with a small inward margin (`1e-3 rad`): float32 cannot represent the knee/hip bounds exactly and rounds to the outside, so a target pinned at an edge would still be rejected. The 1 Hz status print shows `clip : N` whenever the clamp engaged during the last second, which quantifies how far the policy wants to exceed the hardware windows.
+Experimental variant: raw policy actions are not amplitude-clamped. Joint targets are `default pose + ACTION_SCALE * raw action`, clamped into the windows enforced by the SDK's `sendMotorCmd` (abad `±0.48`, hip `-1.15~2.97`, knee `-2.9~-0.65` rad) with a `1e-3 rad` margin (float32 cannot represent the bounds; a target exactly at an edge would still be rejected). The 1 Hz `clip : N` counts cycles with clamping since entering test.
 
 The initial policy gains `kp=20`, `kd=0.7` match the training actuator stiffness/damping; change them only after hardware validation.
 

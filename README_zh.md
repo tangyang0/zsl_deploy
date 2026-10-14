@@ -15,22 +15,22 @@ pip install mujoco pygame-ce       # 可选：sim2sim 回放
 
 ## sim2sim：MuJoCo 回放
 
-`policy_sim2sim.py` 在上真机之前，用同一份 ONNX 策略在 MuJoCo 里回放。它实时给训练 URDF 打补丁（浮动基座、mesh 绝对路径、注入地面），并跑与部署完全一致的管线：观测/动作常量直接从 `policy_deploy.py` 导入，物理 200 Hz、策略 50 Hz，PD 增益 `kp=20`/`kd=0.7` 与 28 Nm 力矩限幅同训练，关节目标同样按 SDK 硬窗口裁剪并统计 clip 次数。机体系角速度直接取自由关节的 `qvel[3:6]`（已用四元数有限差分验证）。
+`policy_sim2sim.py` 在上真机之前，用同一份 ONNX 策略在 MuJoCo 里回放。它实时给训练 URDF 打补丁（浮动基座、mesh 绝对路径、注入地面），并跑与部署完全一致的管线：观测/动作常量直接从 `policy_deploy.py` 导入，物理 200 Hz、策略 50 Hz，PD 增益 `kp=20`/`kd=0.7` 与 28 Nm 力矩限幅同训练，关节目标同样按 SDK 硬窗口裁剪并统计 clip 次数。机体系角速度取自由关节的 `qvel[3:6]`。
 
-地面为浅色平面加每米一条深色网格线（纯 visual 几何，不参与碰撞），机器狗走动时有明确位移参照。刻意不用纹理：本机上程序化纹理在离屏渲染正常、却在 GLFW viewer 的上下文里被静默丢弃（已截窗验证），几何线条则在任何上下文都能渲染。
+地面是浅色平面加深色网格线（纯视觉几何，不参与碰撞），用来观察位移。不用纹理，纹理在 viewer 的 GL 上下文里会丢失。
 
 ```bash
 python policy_sim2sim.py --headless 500 --command 0.5 0 0   # 无窗口冒烟测试
 python policy_sim2sim.py                                    # 交互：3D viewer + 控制面板
 ```
 
-交互模式（默认）打开 mujoco 原生 3D viewer 和一个 pygame 控制小面板，键盘语义与 play.py 完全一致：指令 = 面板中当前按住的所有键之和——按住即走、松开即停、可任意组合，初始指令为零（不按键机器人就站着）。键位与 Se2Keyboard 相同：方向键或小键盘/主键区 `8/2/4/6` 平移，`z`/`7` 左转，`x`/`9` 右转，`l`/`空格` 清零，`r` 复位。相机注视点每帧跟随机器狗（鼠标旋转/缩放仍可用）。摔倒（基座低于 `0.2 m`）自动复位。之所以加 pygame 面板，是因为 viewer 的按键回调没有松开事件；面板是纯软件窗口，避开了本机某些会话上失败的离屏 EGL/GLX 上下文。
+交互模式（默认）打开 mujoco 原生 3D viewer 和一个 pygame 控制面板，键盘语义与 play.py 一致：指令 = 当前按住的所有键之和，按住即走、松开即停、可组合，初始为零。键位同 Se2Keyboard：方向键或小键盘/主键区 `8/2/4/6` 平移，`z`/`7` 左转，`x`/`9` 右转，`l`/`空格` 清零，`r` 复位。相机注视点跟随机器狗（鼠标旋转/缩放可用），摔倒自动复位。键盘输入放在 pygame 面板上，因为 viewer 的按键回调没有松开事件，拿不到按住状态。
 
 ```bash
 python policy_sim2sim.py --native-viewer
 ```
 
-只开原生 viewer：其按键回调没有松开/重复事件（合成按键与真实键盘均已验证），因此按一次持续生效、新按键覆盖旧指令、`l`/`空格` 停止。此模式相机同样跟随机器狗。上真机前先用 sim2sim 筛策略：例如 `smooth_ft` 在此以 `0.45 m/s` 跟踪 `0.5 m/s` 指令，而 `config2` 在 MuJoCo 里只吃低速（`0.25` 可跟踪、`0.5` 摔倒），尽管它在 Isaac 里能走。
+只开原生 viewer：按键回调没有松开/重复事件，按一次持续生效，新按键覆盖旧指令，`l`/`空格` 停止；相机同样跟随。策略在 MuJoCo 和 Isaac 里的表现可能差很多（`config2` 在 Isaac 正常，在 MuJoCo `0.5 m/s` 就摔），上真机前先在这里过一遍。
 
 ## sim2real：真机部署
 
@@ -42,7 +42,7 @@ python policy_sim2sim.py --native-viewer
 
 部署前须先满足 SDK 仓库自身的要求：
 
-- **版本匹配**：SDK 与机器狗本体内程序的通讯协议随版本不同。在狗上执行 `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` 查询本机版本，并选用对应版本的 SDK——本仓库内置的是在我们这台狗上验证过的版本，其他版本请到上游仓库获取。
+- **版本匹配**：SDK 与机器狗本体内程序的通讯协议随版本不同。在狗上执行 `grep -oP 'motion-control_\K[^_]+' /etc/release/*[^rootfs]*.yaml` 查询本机版本，并选用对应版本的 SDK——本仓库内置的是本机验证过的版本，其他版本到上游仓库获取。
 - 厂商建议 SDK 程序运行在与机器人**网线直连**的算力板上，避免 WiFi 干扰。
 - 狗端 `/opt/export/config/sdk_config.yaml` 的 `target_ip` 必须指向控制端机器，且修改后需**重启机器狗**生效。
 - 同一时刻只允许一个 SDK 客户端连接——本脚本运行期间厂商遥控器/App 被屏蔽，反之亦然。
@@ -54,7 +54,7 @@ python policy_sim2sim.py --native-viewer
 
 **在狗上部署（默认模式）**
 
-1. 在狗上把 `/opt/export/config/sdk_config.yaml` 的 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址，与出厂备份一致），重启狗。
+1. 在狗上把 `/opt/export/config/sdk_config.yaml` 的 `target_ip` 改为 `192.168.234.1`（狗自己的 ap0 地址），重启狗。
 2. SSH 上去直接运行：
 
    ```bash
@@ -67,7 +67,7 @@ python policy_sim2sim.py --native-viewer
    python3 policy_deploy.py --web-control --model models/rough.onnx --max-x-speed 0.4 --max-y-speed 0.2 --max-yaw-speed 0.8
    ```
 
-   狗上默认自动绑定核心 5,6（核 7 是运控 mc_ctrl/spline 专用，0-4 常被感知与视频编码占用），50 Hz 主循环与 500 Hz 发送线程不再漂移抢核；推理机等非狗环境默认不绑定，可用 `--pin-cores` 指定或传 `none` 关闭。
+   狗上默认绑定核心 5,6（核 7 留给运控，0-4 常被感知/编码占用）；其他机器默认不绑定，`--pin-cores` 可指定，`none` 关闭。
 
 **在推理机上部署**
 
@@ -102,7 +102,7 @@ python policy_deploy.py
 测试中的键位：
 
 - 方向键（或小键盘 `8/2/4/6`）：前进/后退 `±MAX_X_SPEED`、左移/右移 `±MAX_Y_SPEED`（默认 `1.0 m/s`，即训练指令上限；可用 `--max-x-speed` / `--max-y-speed` 收紧——训练时 vy 范围仅 ±0.3 m/s）。
-- `z`（或小键盘 `7`）：`+MAX_YAW_SPEED` 左转（默认 `1.0 rad/s`，可用 `--max-yaw-speed` 收紧）；`c`（或小键盘 `9`）：右转。play.py 的 X 键位此处未用，因为 `X` 是安全退出。
+- `z`（或小键盘 `7`）：`+MAX_YAW_SPEED` 左转（默认 `1.0 rad/s`，可用 `--max-yaw-speed` 收紧）；`c`（或小键盘 `9`）：右转；play.py 的 X 在这里留给安全退出。
 - 生效中的方向会叠加，但 POSIX 终端只自动重复最后按下的那个键：同时按住两个方向键时，`--key-timeout`（默认 `0.15 s`）过后只剩最后一个。需要组合时交替点按，或一次只按一个。
 - `空格` 立即清零；松开按键同样在超时后归零。
 - 隐藏参数 `--keyboard`、`--command` 为兼容旧启动脚本保留，实际被忽略。
@@ -113,16 +113,16 @@ python policy_deploy.py
 python policy_deploy.py --web-control        # 换端口: --web-control 9090
 ```
 
-开启内置 HTTP 服务（默认端口 8080），浏览器打开即得单页触摸手柄：左侧虚拟摇杆控制 vx/vy，右摇杆 X 轴控制转向；在 Retroid Pocket 4 这类安卓掌机上，浏览器 Gamepad API 会直接读取**实体摇杆**。页面上 `站起 (s)`、`测试 (t)`、`急停 (d)` 按钮驱动同一套状态机。指令为归一化摇杆值乘 `MAX_X_SPEED`/`MAX_Y_SPEED`/`MAX_YAW_SPEED`（带死区；`--max-x-speed`/`--max-y-speed`/`--max-yaw-speed` 对键盘挡位和网页摇杆同时生效）；页面停止发送超过 0.3 秒即回落到键盘指令源。网页**故意**不提供退出功能：关闭浏览器或断 WiFi 只会令指令归零，绝不会杀掉部署进程。原厂 App 无法复用：它独占 SDK 通道，你的策略运行时 App 根本没有链路。
+开启内置 HTTP 服务（默认端口 8080），浏览器打开即得单页触摸手柄：左侧虚拟摇杆控制 vx/vy，右摇杆 X 轴控制转向；在 Retroid Pocket 4 这类安卓掌机上，浏览器 Gamepad API 会直接读取**实体摇杆**。页面上 `站起 (s)`、`测试 (t)`、`急停 (d)` 按钮驱动同一套状态机。指令为归一化摇杆值乘 `MAX_X_SPEED`/`MAX_Y_SPEED`/`MAX_YAW_SPEED`（带死区；`--max-x-speed`/`--max-y-speed`/`--max-yaw-speed` 对键盘挡位和网页摇杆同时生效）；页面停止发送超过 0.3 秒即回落到键盘指令源。网页没有退出功能：关闭页面或断网只会让指令归零，不影响部署进程。原厂 App 独占 SDK 通道，不能用来控制本部署。
 
 ### 机制与安全
 
 #### 动作处理与关节限位
 
-实验变体：策略原始动作**不做幅度钳位**。关节目标 = `默认姿态 + ACTION_SCALE × 原始动作`，再裁剪进 `sendMotorCmd` 的硬窗口（abad `±0.48`、hip `-1.15~2.97`、knee `-2.9~-0.65` rad），并留 `1e-3 rad` 内缩余量：float32 无法精确表示 knee/hip 边界、会向窗口外侧取整，钉在边界上的目标仍会被拒绝。1 Hz 状态打印里的 `clip : N` 表示最近一秒限位裁剪生效的控制周期数，用来量化策略想越界的程度。
+实验变体：策略原始动作不做幅度钳位。关节目标 = `默认姿态 + ACTION_SCALE × 原始动作`，再裁剪进 `sendMotorCmd` 的硬窗口（abad `±0.48`、hip `-1.15~2.97`、knee `-2.9~-0.65` rad），留 `1e-3 rad` 余量（float32 表示不了边界值，取到边界仍会被拒）。1 Hz 打印里的 `clip : N` 是自进入测试以来发生裁剪的控制周期数。
 
 初始增益 `kp=20`、`kd=0.7` 与训练执行器刚度/阻尼一致；硬件验证前不要改动。
 
 #### 退出与阻尼
 
-所有退出路径（`d`、`X`、`Ctrl-C`、发送线程出错）都会在实测当前姿态上切换为旧版 LowLevel 阻尼指令（`kp=0`、`kd=3`）并保持 `--stop-hold-seconds` 秒，让机器人自然趴下。退出过程绝不会命令起立中间姿态。SDK 文档说明 HighLevel 与 LowLevel 不能并用，因此本部署始终保持单条 LowLevel 连接，而不是并行调用 `HighLevel.passive()`。本软件不能替代实体急停。
+所有退出路径（`d`、`X`、`Ctrl-C`、发送线程出错）都会在实测当前姿态上切换为旧版 LowLevel 阻尼指令（`kp=0`、`kd=3`）并保持 `--stop-hold-seconds` 秒，让机器人自然趴下。退出过程不会命令起立中间姿态。SDK 文档说明 HighLevel 与 LowLevel 不能并用，因此本部署始终保持单条 LowLevel 连接，而不是并行调用 `HighLevel.passive()`。本软件不能替代实体急停。

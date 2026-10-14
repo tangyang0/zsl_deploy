@@ -263,10 +263,9 @@ def _pygame_keymap():
 
 
 def run_interactive(model, data, session, qadr, vadr, base_body, command):
-    """play.py-style keyboard: a small pygame panel reads the full key state
-    (hold to move, release to stop, combinations sum), while mujoco's own
-    GLFW viewer shows the 3D scene. No offscreen GL context is created —
-    EGL/GLX offscreen rendering failed on some setups of this machine."""
+    """play.py-style keyboard: a pygame panel reads the full key state
+    (hold to move, release to stop, combinations sum) while mujoco's own
+    GLFW viewer shows the 3D scene. No offscreen GL context is created."""
     import pygame
     pygame.init()
     screen = pygame.display.set_mode((PANEL_W, PANEL_H))
